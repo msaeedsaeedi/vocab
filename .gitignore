@@ -1,0 +1,22 @@
+# Binaries
+/vocab
+/*.exe
+/*.exe~
+/*.dll
+/*.so
+/*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# Data dir ignores user data
+/data/user/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
