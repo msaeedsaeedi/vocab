@@ -1,77 +1,88 @@
 .card {
   width: 100%;
   max-width: 320px;
+  text-align: center;
 }
 
 .word {
-  font-size: 1.6rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  color: #1a1a1a;
-  margin-bottom: 4px;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -0.02em;
 }
 
 .definition {
   font-size: 1rem;
-  font-style: italic;
-  color: #555;
-  margin-bottom: 2px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  line-height: 1.5;
 }
 
 .example {
-  font-size: 0.85rem;
-  color: #888;
-  margin-bottom: 20px;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  margin-bottom: 24px;
+  line-height: 1.4;
+  font-style: italic;
 }
 
 .buttons {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: center;
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
-button {
+.btn {
   border: none;
-  border-radius: 8px;
-  padding: 10px 24px;
-  font-size: 0.9rem;
+  border-radius: var(--radius);
+  padding: 9px 22px;
+  font-size: 0.85rem;
   font-weight: 600;
+  font-family: var(--font);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn-knew {
-  background: #2d9cdb;
+  background: var(--accent);
   color: #fff;
 }
 
 .btn-knew:hover {
-  background: #2488c2;
+  background: var(--accent-hover);
 }
 
 .btn-not {
-  background: #e0e0e0;
-  color: #555;
+  background: #f1f5f9;
+  color: var(--text-secondary);
 }
 
 .btn-not:hover {
-  background: #ccc;
+  background: #e2e8f0;
 }
 
 .done {
-  font-size: 1rem;
-  color: #666;
-  margin-top: 12px;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-top: 16px;
+  font-weight: 500;
 }
 
 .empty {
-  font-size: 0.9rem;
-  color: #999;
-  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--text-tertiary);
+  margin-top: 12px;
 }
 
 .stats {
-  font-size: 0.75rem;
-  color: #aaa;
-  margin-top: 20px;
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  margin-top: 24px;
+  letter-spacing: 0.02em;
 }

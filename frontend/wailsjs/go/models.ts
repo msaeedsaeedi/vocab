@@ -14,6 +14,24 @@ export namespace main {
 	        this.due_today = source["due_today"];
 	    }
 	}
+	export class WidgetConfig {
+	    window_x: number;
+	    window_y: number;
+	    always_on_top: boolean;
+	    auto_start: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new WidgetConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.window_x = source["window_x"];
+	        this.window_y = source["window_y"];
+	        this.always_on_top = source["always_on_top"];
+	        this.auto_start = source["auto_start"];
+	    }
+	}
 	export class WordCard {
 	    id: number;
 	    text: string;

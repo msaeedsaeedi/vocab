@@ -3,21 +3,26 @@ package main
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 
-	_ "embed"
-
+	"github.com/msaeed/vocab/internal/autostart"
+	"github.com/msaeed/vocab/internal/config"
 	"github.com/msaeed/vocab/internal/database"
 	"github.com/msaeed/vocab/internal/scheduler"
 	"github.com/msaeed/vocab/internal/seed"
 	"github.com/msaeed/vocab/internal/word"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed data/words.json
 var wordsJSON []byte
+
+//go:embed build/appicon.png
+var appIconBytes []byte
 
 type WordCard struct {
 	ID         int64  `json:"id"`
@@ -32,9 +37,18 @@ type Stats struct {
 	DueToday int `json:"due_today"`
 }
 
+type WidgetConfig struct {
+	WindowX     int  `json:"window_x"`
+	WindowY     int  `json:"window_y"`
+	AlwaysOnTop bool `json:"always_on_top"`
+	AutoStart   bool `json:"auto_start"`
+}
+
 type App struct {
-	ctx context.Context
-	db  *sql.DB
+	ctx      context.Context
+	db       *sql.DB
+	cfg      *config.Manager
+	quitting bool
 }
 
 func NewApp() *App {
@@ -59,13 +73,39 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.db = db
 
-	needed, err := seed.Needed(db)
+	need, err := seed.Needed(db)
 	if err != nil {
 		log.Fatalf("check seed: %v", err)
 	}
-	if needed {
+	if need {
 		seed.MustFromJSONBytes(db, wordsJSON)
 	}
+
+	mgr, err := config.NewManager(dataDir)
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	a.cfg = mgr
+
+	a.startSystray()
+
+	cfg := a.cfg.Get()
+	runtime.WindowSetAlwaysOnTop(ctx, cfg.AlwaysOnTop)
+	if cfg.WindowX >= 0 && cfg.WindowY >= 0 {
+		runtime.WindowSetPosition(ctx, cfg.WindowX, cfg.WindowY)
+	}
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	a.cfg.Save()
+}
+
+func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
+	if a.quitting {
+		return false
+	}
+	runtime.Hide(ctx)
+	return true
 }
 
 func (a *App) GetDueWord() *WordCard {
@@ -99,4 +139,48 @@ func (a *App) GetStats() Stats {
 		log.Printf("count due: %v", err)
 	}
 	return Stats{Total: total, DueToday: dueCount}
+}
+
+func (a *App) SaveWindowPosition(x, y int) {
+	a.cfg.SetWindowPosition(x, y)
+	a.cfg.Save()
+}
+
+func (a *App) HideToTray() {
+	runtime.Hide(a.ctx)
+}
+
+func (a *App) ToggleWindow() {
+	if runtime.WindowIsNormal(a.ctx) {
+		runtime.Hide(a.ctx)
+	} else {
+		runtime.Show(a.ctx)
+	}
+}
+
+func (a *App) GetConfig() WidgetConfig {
+	c := a.cfg.Get()
+	return WidgetConfig{
+		WindowX:     c.WindowX,
+		WindowY:     c.WindowY,
+		AlwaysOnTop: c.AlwaysOnTop,
+		AutoStart:   c.AutoStart,
+	}
+}
+
+func (a *App) SetAutoStart(enabled bool) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := autostart.SetEnabled("vocab", execPath, enabled); err != nil {
+		return err
+	}
+	a.cfg.SetAutoStart(enabled)
+	a.cfg.Save()
+	return nil
+}
+
+func (a *App) IsAutoStart() bool {
+	return autostart.Enabled("vocab")
 }
