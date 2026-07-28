@@ -12,6 +12,13 @@
 # Output of go coverage
 *.out
 
+# GUI build output
+build/bin/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
 # Data dir ignores user data
 /data/user/
 

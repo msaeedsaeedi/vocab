@@ -16,7 +16,19 @@ type rawWord struct {
 }
 
 func FromJSON(db *sql.DB, path string) error {
-	data, err := os.ReadFile(path)
+	return FromJSONReader(db, func() ([]byte, error) {
+		return os.ReadFile(path)
+	})
+}
+
+func FromJSONBytes(db *sql.DB, data []byte) error {
+	return FromJSONReader(db, func() ([]byte, error) {
+		return data, nil
+	})
+}
+
+func FromJSONReader(db *sql.DB, readFn func() ([]byte, error)) error {
+	data, err := readFn()
 	if err != nil {
 		return fmt.Errorf("read seed file: %w", err)
 	}
@@ -43,6 +55,13 @@ func FromJSON(db *sql.DB, path string) error {
 
 func MustFromJSON(db *sql.DB, path string) {
 	if err := FromJSON(db, path); err != nil {
+		fmt.Fprintf(os.Stderr, "seed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func MustFromJSONBytes(db *sql.DB, data []byte) {
+	if err := FromJSONBytes(db, data); err != nil {
 		fmt.Fprintf(os.Stderr, "seed: %v\n", err)
 		os.Exit(1)
 	}

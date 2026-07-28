@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Vocab</title>
+</head>
+<body>
+<div id="app">
+    <div class="card">
+        <div class="word" id="word"></div>
+        <div class="definition" id="definition"></div>
+        <div class="example" id="example"></div>
+        <div class="buttons" id="buttons">
+            <button class="btn-knew" onclick="answer(true)">Knew It</button>
+            <button class="btn-not" onclick="answer(false)">Not Yet</button>
+        </div>
+        <div class="done" id="done"></div>
+        <div class="empty" id="empty">Add some words to get started!</div>
+        <div class="stats" id="stats"></div>
+    </div>
+</div>
+<script src="./src/main.ts" type="module"></script>
+</body>
+</html>
