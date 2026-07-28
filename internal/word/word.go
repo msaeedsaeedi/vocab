@@ -1,145 +1,103 @@
 package word
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
-	"math"
-	"math/rand"
-	"os"
-	"sync"
-	"time"
 )
 
-type Entry struct {
-	Word        string   `json:"word"`
-	Meaning     string   `json:"meaning"`
-	Usage       string   `json:"usage"`
-	Interval    int      `json:"interval"`
-	NextReview  int64    `json:"next_review"`
-	EaseFactor  float64  `json:"ease_factor"`
-	Repetitions int      `json:"repetitions"`
-	Tags        []string `json:"tags,omitempty"`
+type Word struct {
+	ID         int64  `json:"id"`
+	Text       string `json:"text"`
+	Definition string `json:"definition"`
+	Example    string `json:"example"`
+	Box        int    `json:"box"`
+	NextDue    string `json:"next_due"`
 }
 
-type Store struct {
-	mu       sync.RWMutex
-	entries  []*Entry
-	filePath string
-}
-
-func NewStore(filePath string) *Store {
-	return &Store{
-		entries:  make([]*Entry, 0),
-		filePath: filePath,
-	}
-}
-
-func (s *Store) Load() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := os.ReadFile(s.filePath)
+func Insert(db *sql.DB, w *Word) error {
+	res, err := db.Exec(
+		`INSERT INTO words (text, definition, example, box, next_due) VALUES (?, ?, ?, ?, ?)`,
+		w.Text, w.Definition, w.Example, w.Box, w.NextDue,
+	)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read word file: %w", err)
+		return fmt.Errorf("insert word: %w", err)
 	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("last insert id: %w", err)
+	}
+	w.ID = id
+	return nil
+}
 
-	if err := json.Unmarshal(data, &s.entries); err != nil {
-		return fmt.Errorf("parse word file: %w", err)
+func UpdateFeedback(db *sql.DB, id int64, box int, nextDue string) error {
+	res, err := db.Exec(
+		`UPDATE words SET box = ?, next_due = ? WHERE id = ?`,
+		box, nextDue, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update word: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("word %d not found", id)
 	}
 	return nil
 }
 
-func (s *Store) Save() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	data, err := json.MarshalIndent(s.entries, "", "  ")
+func GetDueWords(db *sql.DB, today string) ([]Word, error) {
+	rows, err := db.Query(
+		`SELECT id, text, definition, example, box, next_due
+		 FROM words WHERE next_due <= ?
+		 ORDER BY box ASC, RANDOM()`, today,
+	)
 	if err != nil {
-		return fmt.Errorf("marshal words: %w", err)
+		return nil, fmt.Errorf("query due words: %w", err)
 	}
+	defer rows.Close()
 
-	if err := os.WriteFile(s.filePath, data, 0644); err != nil {
-		return fmt.Errorf("write word file: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) All() []*Entry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	result := make([]*Entry, len(s.entries))
-	copy(result, s.entries)
-	return result
-}
-
-func (s *Store) Due() []*Entry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	now := time.Now().Unix()
-	var due []*Entry
-	for _, e := range s.entries {
-		if e.NextReview <= now {
-			due = append(due, e)
+	var words []Word
+	for rows.Next() {
+		var w Word
+		if err := rows.Scan(&w.ID, &w.Text, &w.Definition, &w.Example, &w.Box, &w.NextDue); err != nil {
+			return nil, fmt.Errorf("scan word: %w", err)
 		}
+		words = append(words, w)
 	}
-	return due
+	return words, rows.Err()
 }
 
-func (s *Store) TodaysWord() *Entry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if len(s.entries) == 0 {
-		return nil
+func GetAll(db *sql.DB) ([]Word, error) {
+	rows, err := db.Query(
+		`SELECT id, text, definition, example, box, next_due FROM words ORDER BY id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query all words: %w", err)
 	}
+	defer rows.Close()
 
-	now := time.Now()
-	daySeed := now.YearDay()*10000 + now.Year()
-	rng := rand.New(rand.NewSource(int64(daySeed)))
-
-	idx := rng.Intn(len(s.entries))
-	return s.entries[idx]
-}
-
-func (s *Store) UpdateInterval(e *Entry, quality int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if quality < 3 {
-		e.Repetitions = 0
-		e.Interval = 0
-	} else {
-		e.Repetitions++
-		switch e.Repetitions {
-		case 1:
-			e.Interval = 1
-		case 2:
-			e.Interval = 6
-		default:
-			e.Interval = int(math.Round(float64(e.Interval) * e.EaseFactor))
+	var words []Word
+	for rows.Next() {
+		var w Word
+		if err := rows.Scan(&w.ID, &w.Text, &w.Definition, &w.Example, &w.Box, &w.NextDue); err != nil {
+			return nil, fmt.Errorf("scan word: %w", err)
 		}
+		words = append(words, w)
 	}
-
-	e.EaseFactor = e.EaseFactor + (0.1 - float64(5-quality)*(0.08+float64(5-quality)*0.02))
-	if e.EaseFactor < 1.3 {
-		e.EaseFactor = 1.3
-	}
-
-	e.NextReview = time.Now().AddDate(0, 0, e.Interval).Unix()
+	return words, rows.Err()
 }
 
-func (s *Store) Add(entries ...Entry) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func Count(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM words`).Scan(&n)
+	return n, err
+}
 
-	for i := range entries {
-		entries[i].EaseFactor = 2.5
-		entries[i].NextReview = time.Now().Unix()
-		s.entries = append(s.entries, &entries[i])
-	}
+func CountDue(db *sql.DB, today string) (int, error) {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM words WHERE next_due <= ?`, today).Scan(&n)
+	return n, err
 }

@@ -3,50 +3,31 @@ package feedback
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
 
-type Result int
+var stdin io.Reader = os.Stdin
 
-const (
-	Unknown Result = iota
-	Known
-	Close
-)
-
-func Prompt() (Result, error) {
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Print("Did you know this word? [y]es / [n]o / [c]lose: ")
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return Unknown, fmt.Errorf("read input: %w", err)
-	}
-
-	input = strings.TrimSpace(strings.ToLower(input))
-
-	switch input {
-	case "y", "yes", "yeah":
-		return Known, nil
-	case "n", "no", "nah":
-		return Unknown, nil
-	case "c", "close", "kinda":
-		return Close, nil
-	default:
-		return Unknown, fmt.Errorf("unrecognized input: %s", input)
-	}
+func Prompt() (bool, error) {
+	return readFrom(stdin)
 }
 
-func MapToQuality(r Result) int {
-	switch r {
-	case Known:
-		return 5
-	case Close:
-		return 3
-	case Unknown:
-		return 0
+func readFrom(r io.Reader) (bool, error) {
+	reader := bufio.NewReader(r)
+	fmt.Fprint(io.Discard, "Did you know this word? [y/n]: ")
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return false, fmt.Errorf("read input: %w", err)
+	}
+	input = strings.TrimSpace(strings.ToLower(input))
+	switch input {
+	case "y", "yes":
+		return true, nil
+	case "n", "no":
+		return false, nil
 	default:
-		return 0
+		return false, fmt.Errorf("unrecognized input: %q (answer y or n)", input)
 	}
 }

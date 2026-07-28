@@ -1,42 +1,39 @@
 package scheduler
 
 import (
+	"database/sql"
 	"time"
-
-	"github.com/msaeed/vocab/internal/word"
 )
 
-type Quality int
+var boxIntervals = []int{1, 2, 4, 8, 16, 32}
 
-const (
-	Forgotten Quality = 0
-	Hard      Quality = 3
-	Good      Quality = 4
-	Easy      Quality = 5
-)
-
-type Scheduler struct {
-	store *word.Store
+func BoxInterval(box int) int {
+	if box < 0 {
+		return 1
+	}
+	if box >= len(boxIntervals) {
+		return boxIntervals[len(boxIntervals)-1]
+	}
+	return boxIntervals[box]
 }
 
-func New(store *word.Store) *Scheduler {
-	return &Scheduler{store: store}
+func NextDue(box int) string {
+	return time.Now().AddDate(0, 0, BoxInterval(box)).Format("2006-01-02")
 }
 
-func (s *Scheduler) DueCount() int {
-	return len(s.store.Due())
-}
-
-func (s *Scheduler) Review(entry *word.Entry, quality Quality) {
-	s.store.UpdateInterval(entry, int(quality))
-}
-
-func (s *Scheduler) ShowMeaningToday() bool {
-	now := time.Now()
-	return now.Day()%3 == 0
-}
-
-func (s *Scheduler) ShowUsageToday() bool {
-	now := time.Now()
-	return now.Day()%7 == 0
+func RecordFeedback(db *sql.DB, wordID int64, knewIt bool) error {
+	box := 0
+	if knewIt {
+		var currentBox int
+		if err := db.QueryRow(`SELECT box FROM words WHERE id = ?`, wordID).Scan(&currentBox); err != nil {
+			return err
+		}
+		box = currentBox + 1
+		if box > 5 {
+			box = 5
+		}
+	}
+	nextDue := NextDue(box)
+	_, err := db.Exec(`UPDATE words SET box = ?, next_due = ? WHERE id = ?`, box, nextDue, wordID)
+	return err
 }
