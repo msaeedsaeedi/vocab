@@ -1,29 +1,18 @@
-.PHONY: build build-cli build-gui build-windows run run-cli run-gui test lint clean coverage
+.PHONY: build build-windows run test lint clean coverage
 
 BINARY=vocab
-GUI_BINARY=build/bin/vocab
 
-build-cli:
-	go build -o $(BINARY) ./cmd/vocab
-
-build-gui:
-	wails build -tags "webkit2_41 legacy_appindicator"
+build:
+	go build -ldflags="-s -w" -o $(BINARY) ./cmd/vocab
 
 build-windows:
-	wails build -platform windows/amd64 -tags "legacy_appindicator"
+	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o $(BINARY).exe ./cmd/vocab
 
-build: build-cli
-
-run-cli: build-cli
+run: build
 	./$(BINARY)
 
-run-gui:
-	wails dev -tags "webkit2_41 legacy_appindicator"
-
-run: run-cli
-
 test:
-	CGO_ENABLED=1 go test -tags "webkit2_41 legacy_appindicator" ./... -v -race -count=1
+	go test ./... -v -race -count=1
 
 LINT_BIN=$(shell go env GOPATH)/bin/golangci-lint
 
@@ -32,8 +21,8 @@ lint:
 
 clean:
 	rm -f $(BINARY)
+	rm -f $(BINARY).exe
 	rm -f coverage.out
-	rm -rf build/bin
 
 coverage:
 	go test ./... -race -count=1 -coverprofile=coverage.out

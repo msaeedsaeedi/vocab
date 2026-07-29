@@ -7,18 +7,11 @@ import (
 )
 
 type Config struct {
-	WindowX     int  `json:"window_x"`
-	WindowY     int  `json:"window_y"`
-	AlwaysOnTop bool `json:"always_on_top"`
-	AutoStart   bool `json:"auto_start"`
+	AutoStart bool `json:"auto_start"`
 }
 
 func Default() *Config {
-	return &Config{
-		WindowX:     -1,
-		WindowY:     -1,
-		AlwaysOnTop: true,
-	}
+	return &Config{}
 }
 
 type Manager struct {
@@ -59,15 +52,6 @@ func (m *Manager) Save() error {
 		return err
 	}
 	return os.WriteFile(p, data, 0644)
-}
-
-func (m *Manager) SetWindowPosition(x, y int) {
-	m.cfg.WindowX = x
-	m.cfg.WindowY = y
-}
-
-func (m *Manager) SetAlwaysOnTop(v bool) {
-	m.cfg.AlwaysOnTop = v
 }
 
 func (m *Manager) SetAutoStart(v bool) {
