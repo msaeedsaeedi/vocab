@@ -15,6 +15,12 @@
 # Data dir ignores user data
 /data/user/
 
+# Generated preview
+preview.jpg
+
+# Windows zone identifier
+*:Zone.Identifier
+
 # IDE
 .vscode/
 .idea/

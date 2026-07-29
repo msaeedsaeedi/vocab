@@ -4,13 +4,13 @@ go 1.25.0
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
-	github.com/fogleman/gg v1.3.0
 	golang.org/x/sys v0.44.0
 	modernc.org/sqlite v1.37.1
 )
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/fogleman/gg v1.3.0
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

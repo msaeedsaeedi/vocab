@@ -201,10 +201,11 @@ func (t *Tracker) getDaemonState(key string) *int {
 }
 
 func (t *Tracker) putDaemonState(key string, val int) {
+	valStr := intToStr(val)
 	if _, err := t.db.Exec(
 		`INSERT INTO daemon_state (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = ?`,
-		intToStr(val), intToStr(val),
+		key, valStr, valStr,
 	); err != nil {
 		log.Printf("engage: putDaemonState %s: %v", key, err)
 	}

@@ -13,6 +13,8 @@ type Word struct {
 	Text       string
 	Definition string
 	Example    string
+	Pos        string
+	Phonetic   string
 }
 
 type Option struct {
@@ -21,6 +23,33 @@ type Option struct {
 }
 
 func Render(w Word, opt Option) error {
+	return renderWithSet(w, opt, true)
+}
+
+func RenderPreview(w Word, path string, opt Option) error {
+	img, err := render(wordData{
+		text:       w.Text,
+		definition: w.Definition,
+		example:    w.Example,
+		pos:        w.Pos,
+		phonetic:   w.Phonetic,
+	}, opt.Width, opt.Height)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("preview: create: %w", err)
+	}
+	defer f.Close()
+	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 95}); err != nil {
+		return fmt.Errorf("preview: encode: %w", err)
+	}
+	log.Printf("preview: written %s", path)
+	return nil
+}
+
+func renderWithSet(w Word, opt Option, set bool) error {
 	if opt.Width == 0 {
 		opt.Width = 1920
 	}
@@ -32,6 +61,8 @@ func Render(w Word, opt Option) error {
 		text:       w.Text,
 		definition: w.Definition,
 		example:    w.Example,
+		pos:        w.Pos,
+		phonetic:   w.Phonetic,
 	}, opt.Width, opt.Height)
 	if err != nil {
 		return err
@@ -65,6 +96,9 @@ func Render(w Word, opt Option) error {
 		return fmt.Errorf("wallpaper: output file is empty")
 	}
 
+	if !set {
+		return nil
+	}
 	if err := Set(out); err != nil {
 		return fmt.Errorf("wallpaper: set: %w", err)
 	}

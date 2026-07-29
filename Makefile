@@ -19,6 +19,10 @@ LINT_BIN=$(shell go env GOPATH)/bin/golangci-lint
 lint:
 	@if [ -x $(LINT_BIN) ]; then $(LINT_BIN) run ./...; else echo "golangci-lint not installed, run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; go vet ./...; fi
 
+preview:
+	go build -o $(BINARY) ./cmd/vocab
+	./$(BINARY) -preview
+
 clean:
 	rm -f $(BINARY)
 	rm -f $(BINARY).exe

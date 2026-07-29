@@ -29,7 +29,22 @@ func main() {
 	register := flag.Bool("register", false, "Register app for Windows notifications")
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
+	preview := flag.Bool("preview", false, "Generate wallpaper preview to preview.jpg without setting it")
 	flag.Parse()
+
+	if *preview {
+		if err := wallpaper.RenderPreview(wallpaper.Word{
+			Text:       "ambiguous",
+			Definition: "Not clear or exact; open to more than one interpretation.",
+			Example:    "Her reply was deliberately ambiguous, leaving room for both readings.",
+			Pos:        "adjective",
+			Phonetic:   "/æmˈbɪɡ.juəs/",
+		}, "preview.jpg", wallpaper.Option{Width: 1920, Height: 1080}); err != nil {
+			log.Fatalf("preview: %v", err)
+		}
+		fmt.Println("preview.jpg written — open it with: wslview preview.jpg")
+		return
+	}
 
 	if *dev {
 		devFactor = 1.0 / 60.0
