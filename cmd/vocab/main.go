@@ -12,6 +12,7 @@ import (
 
 	"github.com/msaeed/vocab/internal/autostart"
 	"github.com/msaeed/vocab/internal/database"
+	"github.com/msaeed/vocab/internal/engage"
 	"github.com/msaeed/vocab/internal/notify"
 	"github.com/msaeed/vocab/internal/scheduler"
 	"github.com/msaeed/vocab/internal/seed"
@@ -44,10 +45,9 @@ func main() {
 	}
 
 	if *reviewID > 0 {
-		if err := scheduler.RecordFeedback(db, *reviewID, *knewIt); err != nil {
-			log.Fatalf("record feedback: %v", err)
+		if err := handleReviewCommand(db, *reviewID, *knewIt); err != nil {
+			log.Fatalf("review: %v", err)
 		}
-		fmt.Fprintln(logFile, "Feedback recorded.")
 		return
 	}
 
@@ -56,6 +56,28 @@ func main() {
 	}
 
 	runDaemon(db)
+}
+
+func handleReviewCommand(db *sql.DB, id int64, knew bool) error {
+	log.Printf("review: id=%d knew=%v", id, knew)
+	tr := engage.New(db)
+
+	w, err := word.GetWord(db, id)
+	if err != nil {
+		return fmt.Errorf("get word: %w", err)
+	}
+
+	rating := 0
+	if knew {
+		rating = 2
+	}
+	if _, err := scheduler.ScheduleReview(db, w, rating); err != nil {
+		return fmt.Errorf("schedule review: %w", err)
+	}
+
+	tr.RecordEngagement()
+	log.Printf("review: recorded id=%d rating=%d", id, rating)
+	return nil
 }
 
 func openLog() *os.File {
@@ -161,66 +183,127 @@ func doRegister() {
 
 func runDaemon(db *sql.DB) {
 	log.Print("daemon started")
+	tr := engage.New(db)
+
+	resumeAmbientSession(db, tr)
 
 	for {
-		due, err := word.GetDueWords(db, time.Now().Format("2006-01-02"))
+		now := time.Now()
+		dayStart, dayEnd := tr.ActiveWindow()
+
+		if now.Hour() < dayStart || now.Hour() >= dayEnd {
+			sleepUntilNextWindow(dayStart, dayEnd)
+			continue
+		}
+
+		wordsPerDay := tr.WordsPerDay()
+		interWordMins := tr.InterWordMinutes(dayEnd-dayStart, wordsPerDay)
+		log.Printf("adaptive: window=%d-%d words/day=%d gap=%dm",
+			dayStart, dayEnd, wordsPerDay, interWordMins)
+
+		dueWords, err := word.GetDueWords(db, now.Format("2006-01-02"))
 		if err != nil {
 			log.Printf("get due words: %v", err)
 			time.Sleep(30 * time.Minute)
 			continue
 		}
 
-		if len(due) == 0 {
+		presented := 0
+		for presented < wordsPerDay && len(dueWords) > 0 {
+			w := scheduler.SelectNextWord(db, dueWords)
+			if w == nil {
+				break
+			}
+
+			if err := presentWord(db, tr, *w); err != nil {
+				log.Printf("present word %d: %v", w.ID, err)
+			}
+
+			presented++
+			tr.PutLastWordTime(time.Now())
+
+			if presented < wordsPerDay {
+				waitMins := interWordMins
+				remainingDay := dayEnd - time.Now().Hour()
+				if remainingDay > 0 && waitMins > remainingDay*60/(wordsPerDay-presented) {
+					waitMins = remainingDay * 60 / (wordsPerDay - presented + 1)
+				}
+				log.Printf("waiting %dm before next word", waitMins)
+				time.Sleep(time.Duration(waitMins) * time.Minute)
+			}
+
+			dueWords = refreshDueWords(db, dueWords, w.ID)
+			if time.Now().Hour() >= dayEnd {
+				break
+			}
+		}
+
+		if presented == 0 {
 			nextDue := findNextDue(db)
 			if nextDue.IsZero() || nextDue.Before(time.Now()) {
-				log.Print("no words due, sleeping 1h")
-				time.Sleep(1 * time.Hour)
+				log.Print("no words due, sleeping 30m")
+				time.Sleep(30 * time.Minute)
 			} else {
 				dur := time.Until(nextDue)
-				log.Printf("no words due, next due in %v", dur.Round(time.Minute))
-				time.Sleep(dur + time.Minute)
-			}
-			continue
-		}
-
-		w := due[0]
-		handleDueWord(db, w)
-	}
-}
-
-func findNextDue(db *sql.DB) time.Time {
-	rows, err := db.Query("SELECT next_due FROM words ORDER BY next_due ASC LIMIT 1")
-	if err != nil {
-		return time.Time{}
-	}
-	defer rows.Close()
-	if rows.Next() {
-		var s string
-		if rows.Scan(&s) == nil {
-			t, err := time.Parse("2006-01-02", s)
-			if err == nil {
-				return t
+				log.Printf("no words due, next in %v", dur.Round(time.Minute))
+				if dur > time.Hour {
+					time.Sleep(time.Hour)
+				} else {
+					time.Sleep(dur + time.Minute)
+				}
 			}
 		}
 	}
-	return time.Time{}
 }
 
-func handleDueWord(db *sql.DB, w word.Word) {
-	log.Printf("=== showing word: id=%d text=%q", w.ID, w.Text)
+func presentWord(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+	log.Printf("=== presenting word: id=%d text=%q", w.ID, w.Text)
 
-	log.Printf("rendering wallpaper for %q", w.Text)
+	if err := phraseExpose(db, tr, w); err != nil {
+		return fmt.Errorf("expose phase: %w", err)
+	}
+
+	if err := phaseRecall(db, tr, w); err != nil {
+		return fmt.Errorf("recall phase: %w", err)
+	}
+
+	if err := word.UpdatePhase(db, w.ID, ""); err != nil {
+		log.Printf("update phase done: %v", err)
+	}
+	return nil
+}
+
+func phraseExpose(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+	log.Printf("expose: setting wallpaper for %q", w.Text)
+	if err := word.UpdatePhase(db, w.ID, "expose"); err != nil {
+		log.Printf("update phase expose: %v", err)
+	}
+	tr.PutCurrentWord(w.ID, "expose")
+
 	if err := wallpaper.Render(wallpaper.Word{
 		Text:       w.Text,
 		Definition: w.Definition,
 		Example:    w.Example,
 	}, wallpaper.Option{}); err != nil {
 		log.Printf("wallpaper ERROR: %v", err)
-	} else {
-		log.Print("wallpaper set successfully")
+		return err
 	}
+	log.Print("wallpaper set (expose phase)")
 
-	log.Printf("sending notification for word %d", w.ID)
+	absorptionTime := 30 * time.Minute
+	log.Printf("expose: absorption period %v", absorptionTime)
+	time.Sleep(absorptionTime)
+
+	return nil
+}
+
+func phaseRecall(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+	log.Printf("recall: notifying for word %q (id=%d)", w.Text, w.ID)
+	if err := word.UpdatePhase(db, w.ID, "recall"); err != nil {
+		log.Printf("update phase recall: %v", err)
+	}
+	tr.PutCurrentWord(w.ID, "recall")
+
 	if err := notify.Send(notify.Word{
 		ID:         w.ID,
 		Text:       w.Text,
@@ -228,28 +311,109 @@ func handleDueWord(db *sql.DB, w word.Word) {
 		Example:    w.Example,
 	}); err != nil {
 		log.Printf("notify ERROR: %v", err)
-	} else {
-		log.Print("notification sent")
+		return err
 	}
+	log.Print("recall notification sent")
+	tr.PutLastNotificationTime(time.Now())
 
-	log.Printf("waiting for review of word %d (polling 5m)", w.ID)
+	return waitForReview(db, tr, w)
+}
 
-	ticker := time.NewTicker(5 * time.Minute)
+func waitForReview(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+	log.Printf("waiting for review of word %d (polling 2m, timeout 2h)", w.ID)
+
+	deadline := time.Now().Add(2 * time.Hour)
+	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		var nextDue string
-		err := db.QueryRow("SELECT next_due FROM words WHERE id = ?", w.ID).Scan(&nextDue)
+		current, err := word.GetWord(db, w.ID)
 		if err != nil {
-			log.Printf("check review ERROR: %v", err)
-			return
+			log.Printf("review poll ERROR: %v", err)
+			continue
 		}
-		log.Printf("word %d next_due=%s", w.ID, nextDue)
-		if nextDue > time.Now().Format("2006-01-02") {
-			log.Printf("word %d reviewed, moving on", w.ID)
-			return
+
+		if current.NextDue > time.Now().Format("2006-01-02") {
+			log.Printf("word %d reviewed (next_due=%s)", w.ID, current.NextDue)
+			tr.RecordEngagement()
+			tr.ClearCurrentWord()
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			log.Printf("word %d review timeout — auto-lapsing", w.ID)
+			if _, err := scheduler.ScheduleReview(db, &w, 0); err != nil {
+				return fmt.Errorf("auto-lapse: %w", err)
+			}
+			if err := word.UpdatePhase(db, w.ID, ""); err != nil {
+				log.Printf("update phase: %v", err)
+			}
+			tr.ClearCurrentWord()
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func resumeAmbientSession(db *sql.DB, tr *engage.Tracker) {
+	wordID, phase := tr.GetCurrentWord()
+	if wordID == 0 {
+		return
+	}
+
+	log.Printf("resume: word=%d phase=%s", wordID, phase)
+
+	w, err := word.GetWord(db, wordID)
+	if err != nil {
+		log.Printf("resume: word %d not found: %v", wordID, err)
+		tr.ClearCurrentWord()
+		return
+	}
+
+	switch phase {
+	case "expose":
+		log.Printf("resume: re-entering recall phase for word %q", w.Text)
+		if err := phaseRecall(db, tr, *w); err != nil {
+			log.Printf("resume recall ERROR: %v", err)
+		}
+	case "recall":
+		log.Printf("resume: continuing review wait for word %q", w.Text)
+		if err := waitForReview(db, tr, *w); err != nil {
+			log.Printf("resume review ERROR: %v", err)
 		}
 	}
 }
 
+func findNextDue(db *sql.DB) time.Time {
+	nextDue, err := word.GetNextDue(db)
+	if err != nil || nextDue == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse("2006-01-02", nextDue)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
 
+func refreshDueWords(db *sql.DB, current []word.Word, excludeID int64) []word.Word {
+	filtered := make([]word.Word, 0, len(current)-1)
+	for _, w := range current {
+		if w.ID != excludeID {
+			filtered = append(filtered, w)
+		}
+	}
+	return filtered
+}
+
+func sleepUntilNextWindow(start, end int) {
+	now := time.Now()
+	tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1, start, 0, 0, 0, now.Location())
+	sleepDur := tomorrow.Sub(now)
+	if sleepDur > 8*time.Hour {
+		sleepDur = 8 * time.Hour
+	}
+	log.Printf("outside active window (%d-%d), sleeping %v", start, end, sleepDur.Round(time.Minute))
+	time.Sleep(sleepDur)
+}

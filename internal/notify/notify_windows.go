@@ -31,7 +31,7 @@ func Send(w Word) error {
 			{
 				Type:      toast.Foreground,
 				Content:   "Didn't know",
-				Arguments: fmt.Sprintf("--review %d --forgot", w.ID),
+				Arguments: fmt.Sprintf("--review %d --knew=false", w.ID),
 			},
 		},
 	}

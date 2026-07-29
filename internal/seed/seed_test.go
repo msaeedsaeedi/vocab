@@ -19,12 +19,20 @@ func newTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS words (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			text TEXT NOT NULL,
-			definition TEXT NOT NULL DEFAULT '',
-			example TEXT NOT NULL DEFAULT '',
-			box INTEGER NOT NULL DEFAULT 0,
-			next_due TEXT NOT NULL DEFAULT (date('now'))
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			text           TEXT NOT NULL,
+			definition     TEXT NOT NULL DEFAULT '',
+			example        TEXT NOT NULL DEFAULT '',
+			box            INTEGER NOT NULL DEFAULT 0,
+			next_due       TEXT NOT NULL DEFAULT (date('now')),
+			stability      REAL NOT NULL DEFAULT 1.0,
+			difficulty     REAL NOT NULL DEFAULT 0.3,
+			bkt_alpha      REAL NOT NULL DEFAULT 1.0,
+			bkt_beta       REAL NOT NULL DEFAULT 1.0,
+			last_reviewed  TEXT NOT NULL DEFAULT '',
+			review_count   INTEGER NOT NULL DEFAULT 0,
+			lapse_count    INTEGER NOT NULL DEFAULT 0,
+			exposure_phase TEXT NOT NULL DEFAULT ''
 		)
 	`)
 	if err != nil {
