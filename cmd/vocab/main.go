@@ -1,26 +1,35 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 
-	"github.com/msaeed/vocab/internal/autostart"
-	"github.com/msaeed/vocab/internal/database"
-	"github.com/msaeed/vocab/internal/engage"
-	"github.com/msaeed/vocab/internal/notify"
-	"github.com/msaeed/vocab/internal/scheduler"
-	"github.com/msaeed/vocab/internal/seed"
-	"github.com/msaeed/vocab/internal/wallpaper"
-	"github.com/msaeed/vocab/internal/word"
+	"github.com/msaeedsaeedi/vocab/internal/autostart"
+	"github.com/msaeedsaeedi/vocab/internal/database"
+	"github.com/msaeedsaeedi/vocab/internal/engage"
+	"github.com/msaeedsaeedi/vocab/internal/notify"
+	"github.com/msaeedsaeedi/vocab/internal/scheduler"
+	"github.com/msaeedsaeedi/vocab/internal/seed"
+	"github.com/msaeedsaeedi/vocab/internal/wallpaper"
+	"github.com/msaeedsaeedi/vocab/internal/word"
 )
 
-var devFactor = 1.0
+var (
+	devFactor = 1.0
+
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
 	resetDB := flag.Bool("reset-db", false, "Delete database and re-seed")
@@ -30,7 +39,14 @@ func main() {
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
 	preview := flag.Bool("preview", false, "Generate wallpaper preview to preview.jpg without setting it")
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("vocab %s (commit=%s, built=%s, go=%s, os=%s/%s)\n",
+			version, commit, date, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		return
+	}
 
 	if *preview {
 		if err := wallpaper.RenderPreview(wallpaper.Word{
@@ -42,7 +58,7 @@ func main() {
 		}, "preview.jpg", wallpaper.Option{Width: 1920, Height: 1080}); err != nil {
 			log.Fatalf("preview: %v", err)
 		}
-		fmt.Println("preview.jpg written — open it with: wslview preview.jpg")
+		fmt.Println("preview.jpg written")
 		return
 	}
 
@@ -56,6 +72,9 @@ func main() {
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Printf("=== vocab started (pid=%d, os=%s) ===", os.Getpid(), runtime.GOOS)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	db := openDB(*resetDB)
 	defer db.Close()
@@ -78,7 +97,7 @@ func main() {
 		enableAutostart()
 	}
 
-	runDaemon(db)
+	runDaemon(ctx, db)
 }
 
 func handleReviewCommand(db *sql.DB, id int64, knew bool) error {
@@ -180,8 +199,18 @@ func findSeedFile() string {
 	return ""
 }
 
-func sleepDev(d time.Duration)                  { time.Sleep(time.Duration(float64(d) * devFactor)) }
+func sleepDev(d time.Duration) { time.Sleep(time.Duration(float64(d) * devFactor)) }
 func devDuration(d time.Duration) time.Duration { return time.Duration(float64(d) * devFactor) }
+
+func sleepDevContext(ctx context.Context, d time.Duration) bool {
+	scaled := time.Duration(float64(d) * devFactor)
+	select {
+	case <-time.After(scaled):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
 
 func enableAutostart() {
 	execPath, err := os.Executable()
@@ -207,18 +236,29 @@ func doRegister() {
 	log.Print("notification app registered")
 }
 
-func runDaemon(db *sql.DB) {
+func runDaemon(ctx context.Context, db *sql.DB) {
 	log.Print("daemon started")
 	tr := engage.New(db)
 
-	resumeAmbientSession(db, tr)
+	resumeAmbientSession(ctx, db, tr)
 
 	for {
+		select {
+		case <-ctx.Done():
+			log.Print("shutting down daemon")
+			return
+		default:
+		}
+
 		now := time.Now()
 		dayStart, dayEnd := tr.ActiveWindow()
 
 		if now.Hour() < dayStart || now.Hour() >= dayEnd {
-			sleepUntilNextWindow(dayStart, dayEnd)
+			sleepUntilNextWindow(ctx, dayStart, dayEnd)
+			if ctx.Err() != nil {
+				log.Print("shutting down daemon")
+				return
+			}
 			continue
 		}
 
@@ -230,7 +270,7 @@ func runDaemon(db *sql.DB) {
 		dueWords, err := word.GetDueWords(db, now.Format("2006-01-02"))
 		if err != nil {
 			log.Printf("get due words: %v", err)
-			sleepDev(30 * time.Minute)
+			sleepDevContext(ctx, 30*time.Minute)
 			continue
 		}
 
@@ -241,7 +281,7 @@ func runDaemon(db *sql.DB) {
 				break
 			}
 
-			if err := presentWord(db, tr, *w); err != nil {
+			if err := presentWord(ctx, db, tr, *w); err != nil {
 				log.Printf("present word %d: %v", w.ID, err)
 			}
 
@@ -255,7 +295,11 @@ func runDaemon(db *sql.DB) {
 					waitMins = remainingDay * 60 / (wordsPerDay - presented + 1)
 				}
 				log.Printf("waiting %dm before next word", waitMins)
-				sleepDev(time.Duration(waitMins) * time.Minute)
+				sleepDevContext(ctx, time.Duration(waitMins)*time.Minute)
+				if ctx.Err() != nil {
+					log.Print("shutting down daemon")
+					return
+				}
 			}
 
 			dueWords = refreshDueWords(db, dueWords, w.ID)
@@ -268,28 +312,32 @@ func runDaemon(db *sql.DB) {
 			nextDue := findNextDue(db)
 			if nextDue.IsZero() || nextDue.Before(time.Now()) {
 				log.Print("no words due, sleeping 30m")
-				sleepDev(30 * time.Minute)
+				sleepDevContext(ctx, 30*time.Minute)
 			} else {
 				dur := time.Until(nextDue)
 				log.Printf("no words due, next in %v", dur.Round(time.Minute))
 				if dur > time.Hour {
-					sleepDev(time.Hour)
+					sleepDevContext(ctx, time.Hour)
 				} else {
-					sleepDev(dur + time.Minute)
+					sleepDevContext(ctx, dur+time.Minute)
 				}
+			}
+			if ctx.Err() != nil {
+				log.Print("shutting down daemon")
+				return
 			}
 		}
 	}
 }
 
-func presentWord(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func presentWord(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("=== presenting word: id=%d text=%q", w.ID, w.Text)
 
-	if err := phraseExpose(db, tr, w); err != nil {
+	if err := phraseExpose(ctx, db, tr, w); err != nil {
 		return fmt.Errorf("expose phase: %w", err)
 	}
 
-	if err := phaseRecall(db, tr, w); err != nil {
+	if err := phaseRecall(ctx, db, tr, w); err != nil {
 		return fmt.Errorf("recall phase: %w", err)
 	}
 
@@ -299,7 +347,7 @@ func presentWord(db *sql.DB, tr *engage.Tracker, w word.Word) error {
 	return nil
 }
 
-func phraseExpose(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func phraseExpose(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("expose: setting wallpaper for %q", w.Text)
 	if err := word.UpdatePhase(db, w.ID, "expose"); err != nil {
 		log.Printf("update phase expose: %v", err)
@@ -318,12 +366,14 @@ func phraseExpose(db *sql.DB, tr *engage.Tracker, w word.Word) error {
 
 	absorptionTime := 30 * time.Minute
 	log.Printf("expose: absorption period %v", absorptionTime)
-	sleepDev(absorptionTime)
+	if !sleepDevContext(ctx, absorptionTime) {
+		return ctx.Err()
+	}
 
 	return nil
 }
 
-func phaseRecall(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func phaseRecall(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("recall: notifying for word %q (id=%d)", w.Text, w.ID)
 	if err := word.UpdatePhase(db, w.ID, "recall"); err != nil {
 		log.Printf("update phase recall: %v", err)
@@ -342,47 +392,52 @@ func phaseRecall(db *sql.DB, tr *engage.Tracker, w word.Word) error {
 	log.Print("recall notification sent")
 	tr.PutLastNotificationTime(time.Now())
 
-	return waitForReview(db, tr, w)
+	return waitForReview(ctx, db, tr, w)
 }
 
-func waitForReview(db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func waitForReview(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("waiting for review of word %d (polling 2m, timeout 2h)", w.ID)
 
 	deadline := time.Now().Add(devDuration(2 * time.Hour))
-	ticker := time.NewTicker(devDuration(2 * time.Minute))
-	defer ticker.Stop()
+	pollInterval := devDuration(2 * time.Minute)
 
-	for range ticker.C {
-		current, err := word.GetWord(db, w.ID)
-		if err != nil {
-			log.Printf("review poll ERROR: %v", err)
-			continue
-		}
-
-		if current.NextDue > time.Now().Format("2006-01-02") {
-			log.Printf("word %d reviewed (next_due=%s)", w.ID, current.NextDue)
-			tr.RecordEngagement()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Print("shutdown during review wait")
 			tr.ClearCurrentWord()
 			return nil
-		}
 
-		if time.Now().After(deadline) {
-			log.Printf("word %d review timeout — auto-lapsing", w.ID)
-			if _, err := scheduler.ScheduleReview(db, &w, 0); err != nil {
-				return fmt.Errorf("auto-lapse: %w", err)
+		case <-time.After(pollInterval):
+			current, err := word.GetWord(db, w.ID)
+			if err != nil {
+				log.Printf("review poll ERROR: %v", err)
+				continue
 			}
-			if err := word.UpdatePhase(db, w.ID, ""); err != nil {
-				log.Printf("update phase: %v", err)
+
+			if current.NextDue > time.Now().Format("2006-01-02") {
+				log.Printf("word %d reviewed (next_due=%s)", w.ID, current.NextDue)
+				tr.RecordEngagement()
+				tr.ClearCurrentWord()
+				return nil
 			}
-			tr.ClearCurrentWord()
-			return nil
+
+			if time.Now().After(deadline) {
+				log.Printf("word %d review timeout — auto-lapsing", w.ID)
+				if _, err := scheduler.ScheduleReview(db, &w, 0); err != nil {
+					return fmt.Errorf("auto-lapse: %w", err)
+				}
+				if err := word.UpdatePhase(db, w.ID, ""); err != nil {
+					log.Printf("update phase: %v", err)
+				}
+				tr.ClearCurrentWord()
+				return nil
+			}
 		}
 	}
-
-	return nil
 }
 
-func resumeAmbientSession(db *sql.DB, tr *engage.Tracker) {
+func resumeAmbientSession(ctx context.Context, db *sql.DB, tr *engage.Tracker) {
 	wordID, phase := tr.GetCurrentWord()
 	if wordID == 0 {
 		return
@@ -400,12 +455,12 @@ func resumeAmbientSession(db *sql.DB, tr *engage.Tracker) {
 	switch phase {
 	case "expose":
 		log.Printf("resume: re-entering recall phase for word %q", w.Text)
-		if err := phaseRecall(db, tr, *w); err != nil {
+		if err := phaseRecall(ctx, db, tr, *w); err != nil {
 			log.Printf("resume recall ERROR: %v", err)
 		}
 	case "recall":
 		log.Printf("resume: continuing review wait for word %q", w.Text)
-		if err := waitForReview(db, tr, *w); err != nil {
+		if err := waitForReview(ctx, db, tr, *w); err != nil {
 			log.Printf("resume review ERROR: %v", err)
 		}
 	}
@@ -433,7 +488,7 @@ func refreshDueWords(db *sql.DB, current []word.Word, excludeID int64) []word.Wo
 	return filtered
 }
 
-func sleepUntilNextWindow(start, end int) {
+func sleepUntilNextWindow(ctx context.Context, start, end int) {
 	now := time.Now()
 	tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1, start, 0, 0, 0, now.Location())
 	sleepDur := tomorrow.Sub(now)
@@ -441,5 +496,5 @@ func sleepUntilNextWindow(start, end int) {
 		sleepDur = 8 * time.Hour
 	}
 	log.Printf("outside active window (%d-%d), sleeping %v", start, end, sleepDur.Round(time.Minute))
-	sleepDev(sleepDur)
+	sleepDevContext(ctx, sleepDur)
 }

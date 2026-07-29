@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/msaeed/vocab/internal/word"
+	"github.com/msaeedsaeedi/vocab/internal/word"
 )
 
 const hoursPerDay = 24.0

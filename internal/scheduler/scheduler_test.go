@@ -8,7 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/msaeed/vocab/internal/word"
+	"github.com/msaeedsaeedi/vocab/internal/word"
 )
 
 func newTestDB(t *testing.T) *sql.DB {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/msaeed/vocab/internal/word"
+	"github.com/msaeedsaeedi/vocab/internal/word"
 )
 
 type rawWord struct {

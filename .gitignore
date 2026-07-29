@@ -15,11 +15,11 @@
 # Data dir ignores user data
 /data/user/
 
-# Generated preview
-preview.jpg
-
 # Windows zone identifier
 *:Zone.Identifier
+
+# Generated coverage report (make coverage)
+coverage.html
 
 # IDE
 .vscode/

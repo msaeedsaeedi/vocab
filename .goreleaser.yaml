@@ -1,0 +1,73 @@
+version: 2
+
+project_name: vocab
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/vocab
+    binary: vocab
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: 386
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - formats: ["tar.gz"]
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - data/*.json
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore"
+      - "^ci:"
+
+release:
+  github:
+    owner: msaeedsaeedi
+    name: vocab
+  draft: false
+  prerelease: auto
+
+nfpms:
+  - maintainer: msaeedsaeedi
+    description: Cross-platform desktop vocabulary learning daemon
+    homepage: https://github.com/msaeedsaeedi/vocab
+    license: GPL-3.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin

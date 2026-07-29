@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/msaeed/vocab/internal/word"
+	"github.com/msaeedsaeedi/vocab/internal/word"
 	_ "modernc.org/sqlite"
 )
 

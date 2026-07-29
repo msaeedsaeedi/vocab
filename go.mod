@@ -1,4 +1,4 @@
-module github.com/msaeed/vocab
+module github.com/msaeedsaeedi/vocab
 
 go 1.25.0
 
