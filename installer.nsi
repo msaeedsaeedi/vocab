@@ -18,6 +18,8 @@ Section "Install"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" \
     "VocabDaemon" '"$INSTDIR\${BINARY}" -daemon'
 
+  Exec '"$INSTDIR\${BINARY}" -daemon'
+
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" \
     "DisplayName" "${APP_NAME} ${APP_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" \
@@ -33,6 +35,7 @@ Section "Install"
 SectionEnd
 
 Section "Uninstall"
+  nsExec::Exec 'taskkill /f /im ${BINARY}'
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "VocabDaemon"
 
   Delete "$INSTDIR\${BINARY}"
