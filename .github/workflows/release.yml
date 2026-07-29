@@ -11,6 +11,8 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    env:
+      NSIS_VERSION: "3.10"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,5 +31,32 @@ jobs:
           distribution: goreleaser
           version: "~> 2"
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install makensis
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q nsis
+
+      - name: Build NSIS installer
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          for zip in dist/*_windows_amd64.zip; do
+            [ -f "$zip" ] || continue
+            unzip -j "$zip" "vocab.exe" -d dist/installer/
+          done
+          cp icon.ico dist/installer/
+          cp README.md dist/installer/
+          cp LICENSE dist/installer/
+          sed "s/{{.Version}}/$TAG/g; s/{{.Name}}/Vocab-$TAG-windows-amd64-setup/g; s/{{.Binary}}/vocab.exe/g" \
+            installer.nsi > dist/installer/installer.nsi
+          cd dist/installer
+          makensis installer.nsi
+          mv "Vocab-$TAG-windows-amd64-setup.exe" "../Vocab-$TAG-windows-amd64-setup.exe"
+
+      - name: Upload installer to release
+        run: |
+          gh release upload "${{ github.ref_name }}" dist/*-setup.exe --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
