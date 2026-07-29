@@ -20,13 +20,21 @@ import (
 	"github.com/msaeed/vocab/internal/word"
 )
 
+var devFactor = 1.0
+
 func main() {
 	resetDB := flag.Bool("reset-db", false, "Delete database and re-seed")
 	reviewID := flag.Int64("review", 0, "Word ID to record feedback for")
 	knewIt := flag.Bool("knew", false, "Whether the user knew the word (used with --review)")
 	register := flag.Bool("register", false, "Register app for Windows notifications")
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
+	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
 	flag.Parse()
+
+	if *dev {
+		devFactor = 1.0 / 60.0
+		log.Print("=== DEV MODE: timeouts divided by 60 ===")
+	}
 
 	logFile := openLog()
 	defer logFile.Close()
@@ -157,6 +165,9 @@ func findSeedFile() string {
 	return ""
 }
 
+func sleepDev(d time.Duration)                  { time.Sleep(time.Duration(float64(d) * devFactor)) }
+func devDuration(d time.Duration) time.Duration { return time.Duration(float64(d) * devFactor) }
+
 func enableAutostart() {
 	execPath, err := os.Executable()
 	if err != nil {
@@ -204,7 +215,7 @@ func runDaemon(db *sql.DB) {
 		dueWords, err := word.GetDueWords(db, now.Format("2006-01-02"))
 		if err != nil {
 			log.Printf("get due words: %v", err)
-			time.Sleep(30 * time.Minute)
+			sleepDev(30 * time.Minute)
 			continue
 		}
 
@@ -229,7 +240,7 @@ func runDaemon(db *sql.DB) {
 					waitMins = remainingDay * 60 / (wordsPerDay - presented + 1)
 				}
 				log.Printf("waiting %dm before next word", waitMins)
-				time.Sleep(time.Duration(waitMins) * time.Minute)
+				sleepDev(time.Duration(waitMins) * time.Minute)
 			}
 
 			dueWords = refreshDueWords(db, dueWords, w.ID)
@@ -242,14 +253,14 @@ func runDaemon(db *sql.DB) {
 			nextDue := findNextDue(db)
 			if nextDue.IsZero() || nextDue.Before(time.Now()) {
 				log.Print("no words due, sleeping 30m")
-				time.Sleep(30 * time.Minute)
+				sleepDev(30 * time.Minute)
 			} else {
 				dur := time.Until(nextDue)
 				log.Printf("no words due, next in %v", dur.Round(time.Minute))
 				if dur > time.Hour {
-					time.Sleep(time.Hour)
+					sleepDev(time.Hour)
 				} else {
-					time.Sleep(dur + time.Minute)
+					sleepDev(dur + time.Minute)
 				}
 			}
 		}
@@ -292,7 +303,7 @@ func phraseExpose(db *sql.DB, tr *engage.Tracker, w word.Word) error {
 
 	absorptionTime := 30 * time.Minute
 	log.Printf("expose: absorption period %v", absorptionTime)
-	time.Sleep(absorptionTime)
+	sleepDev(absorptionTime)
 
 	return nil
 }
@@ -322,8 +333,8 @@ func phaseRecall(db *sql.DB, tr *engage.Tracker, w word.Word) error {
 func waitForReview(db *sql.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("waiting for review of word %d (polling 2m, timeout 2h)", w.ID)
 
-	deadline := time.Now().Add(2 * time.Hour)
-	ticker := time.NewTicker(2 * time.Minute)
+	deadline := time.Now().Add(devDuration(2 * time.Hour))
+	ticker := time.NewTicker(devDuration(2 * time.Minute))
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -415,5 +426,5 @@ func sleepUntilNextWindow(start, end int) {
 		sleepDur = 8 * time.Hour
 	}
 	log.Printf("outside active window (%d-%d), sleeping %v", start, end, sleepDur.Round(time.Minute))
-	time.Sleep(sleepDur)
+	sleepDev(sleepDur)
 }
