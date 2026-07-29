@@ -40,8 +40,12 @@ jobs:
       - name: Build NSIS installer
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
+          for f in dist/*_windows_amd64.zip; do
+            [ -f "$f" ] && ZIP="$f" && break
+          done
+          if [ -z "${ZIP:-}" ]; then echo "No amd64 zip found in dist/"; ls dist/; exit 1; fi
           mkdir -p dist/installer
-          unzip -j "dist/vocab_${TAG}_windows_amd64.zip" "vocab.exe" -d dist/installer/
+          unzip -j "$ZIP" "vocab.exe" -d dist/installer/
           cp icon.ico README.md LICENSE dist/installer/
           sed "s/{{.Version}}/$TAG/g; s/{{.Name}}/Vocab-$TAG-windows-amd64-setup/g; s/{{.Binary}}/vocab.exe/g" \
             installer.nsi > dist/installer/installer.nsi
