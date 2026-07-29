@@ -6,7 +6,7 @@ build:
 	go build -ldflags="-s -w" -o $(BINARY) ./cmd/vocab
 
 build-windows:
-	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o $(BINARY).exe ./cmd/vocab
+	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui -X main.version=dev" -o $(BINARY).exe ./cmd/vocab
 
 run: build
 	./$(BINARY)

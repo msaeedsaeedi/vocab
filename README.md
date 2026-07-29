@@ -11,59 +11,58 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License"></a>
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8.svg" alt="Go version"></a>
-  <a href="https://github.com/msaeedsaeedi/vocab/actions"><img src="https://img.shields.io/github/actions/workflow/status/msaeedsaeedi/vocab/release.yml?branch=main" alt="CI"></a>
+  <a href="https://github.com/msaeedsaeedi/vocab/releases"><img src="https://img.shields.io/github/v/release/msaeedsaeedi/vocab" alt="Release"></a>
 </p>
 
 ---
 
-Vocab is a cross-platform desktop daemon that helps you learn vocabulary through a two-phase learning loop — **ambient wallpaper exposure** followed by **active recall notifications** — all running silently in the background.
+Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-phase learning loop — **ambient wallpaper exposure** followed by **active recall notifications** — all running silently in the background.
 
 ## Features
 
 - **Two-phase learning** — Words first appear on your wallpaper for passive absorption, then trigger a notification to test recall.
 - **FSRS + BKT scheduler** — Combines Free Spaced Repetition Scheduler with Bayesian Knowledge Tracing for optimal review timing.
 - **Adaptive pacing** — Automatically adjusts daily word count and active hours based on your engagement patterns.
-- **Cross-platform** — Works on Linux, macOS, and Windows.
 - **Zero configuration** — Seeds 30 starter words from JSON; just run and learn.
-- **Autostart support** — Registers itself to launch on login (Linux `.desktop`, macOS LaunchAgent, Windows Registry).
+- **Autostart support** — Registers itself in the Windows Registry to launch on login.
 - **Dev mode** — 60× faster timeouts for testing (`-dev` flag).
 
 ## Installation
 
+### Windows Installer (recommended)
+
+Download the latest `Vocab-*-windows-amd64-setup.exe` from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases). The installer:
+
+- Installs to `Program Files\Vocab`
+- Registers Vocab to start automatically on login
+- Adds an entry in Add/Remove Programs for clean uninstall
+
 ### Go install
 
 ```bash
-go install github.com/msaeed/vocab/cmd/vocab@latest
+go install github.com/msaeedsaeedi/vocab/cmd/vocab@latest
 ```
 
 ### Pre-built binaries
 
-Download the latest release for your platform from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases).
-
-| Platform | Binary |
-|----------|--------|
-| Linux amd64 | `vocab_linux_amd64.tar.gz` |
-| Linux arm64 | `vocab_linux_arm64.tar.gz` |
-| macOS amd64 | `vocab_darwin_amd64.tar.gz` |
-| macOS arm64 | `vocab_darwin_arm64.tar.gz` |
-| Windows amd64 | `vocab_windows_amd64.zip` |
+Download `vocab_*_windows_amd64.zip` from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases) and extract `vocab.exe`.
 
 ### Build from source
 
 ```bash
 git clone https://github.com/msaeedsaeedi/vocab.git
 cd vocab
-make build
+make build-windows
 ```
 
 ## Quick start
 
-```bash
+```powershell
 # Start the daemon
-vocab -daemon
+vocab.exe -daemon
 
 # Use dev mode for testing (60× faster timeouts)
-vocab -daemon -dev
+vocab.exe -daemon -dev
 ```
 
 Once running, Vocab will seed its database, render your first word on the desktop wallpaper, and begin the learning loop.
@@ -79,24 +78,25 @@ Once running, Vocab will seed its database, render your first word on the deskto
 | `-knew` | Used with `-review` to mark word as known |
 | `-preview` | Generate a wallpaper preview image |
 | `-register` | Register app for Windows toast notifications |
+| `-version` | Print version and exit |
 
 ### Mark a word as known
 
-```bash
-vocab -review 1 -knew
-vocab -review 1            # mark as not known (auto-lapse)
+```powershell
+vocab.exe -review 1 -knew
+vocab.exe -review 1            # mark as not known (auto-lapse)
 ```
 
 ### Reset and start fresh
 
-```bash
-vocab -reset-db -daemon
+```powershell
+vocab.exe -reset-db -daemon
 ```
 
 ### Generate wallpaper preview
 
-```bash
-vocab -preview
+```powershell
+vocab.exe -preview
 ```
 
 ## How it works
@@ -116,25 +116,25 @@ The scheduler combines **FSRS** (spaced repetition with stability/difficulty) an
 
 ## Configuration
 
-Configuration is stored in the platform's standard data directory:
+Data is stored at `%APPDATA%/vocab/`:
 
-| Platform | Path |
-|----------|------|
-| Linux | `~/.local/share/vocab/config.json` |
-| macOS | `~/Library/Application Support/vocab/config.json` |
-| Windows | `%APPDATA%/vocab/config.json` |
+| File | Purpose |
+|------|---------|
+| `vocab.db` | SQLite database with words, review log, and engagement data |
+| `config.json` | User configuration (active window, words per day) |
+| `wallpaper.jpg` | Current word rendered as wallpaper |
 
-Words are seeded from `data/words.json`. You can add your own words to this file (it's bundled with the binary and also looked up relative to the executable).
+Words are seeded from `data/words.json`. You can add your own words to this file (it's looked up relative to the executable).
 
 ## Development
 
-```bash
-make build        # Build for Linux
+```powershell
+make build          # Build for Linux (cross-platform dev)
 make build-windows  # Cross-compile for Windows
-make test         # Run all tests
-make lint         # Run golangci-lint
-make coverage     # Test coverage report
-make clean        # Remove binaries
+make test           # Run all tests
+make lint           # Run golangci-lint
+make coverage       # Test coverage report
+make clean          # Remove binaries
 ```
 
 ## Acknowledgments
