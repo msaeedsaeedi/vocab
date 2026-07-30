@@ -1,57 +1,25 @@
 package scheduler
 
 import (
-	"database/sql"
 	"math"
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
-
+	"github.com/msaeedsaeedi/vocab/internal/database"
 	"github.com/msaeedsaeedi/vocab/internal/word"
 )
 
-func newTestDB(t *testing.T) *sql.DB {
+func newTestDB(t *testing.T) *database.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := database.Open(":memory:")
 	if err != nil {
-		t.Fatalf("open :memory:: %v", err)
+		t.Fatalf("database.Open(\":memory:\"): %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS words (
-			id             INTEGER PRIMARY KEY AUTOINCREMENT,
-			text           TEXT NOT NULL,
-			definition     TEXT NOT NULL DEFAULT '',
-			example        TEXT NOT NULL DEFAULT '',
-			pos            TEXT NOT NULL DEFAULT '',
-			box            INTEGER NOT NULL DEFAULT 0,
-			next_due       TEXT NOT NULL DEFAULT (date('now')),
-			stability      REAL NOT NULL DEFAULT 1.0,
-			difficulty     REAL NOT NULL DEFAULT 0.3,
-			bkt_alpha      REAL NOT NULL DEFAULT 1.0,
-			bkt_beta       REAL NOT NULL DEFAULT 1.0,
-			last_reviewed  TEXT NOT NULL DEFAULT '',
-			review_count   INTEGER NOT NULL DEFAULT 0,
-			lapse_count    INTEGER NOT NULL DEFAULT 0,
-			exposure_phase TEXT NOT NULL DEFAULT ''
-		);
-		CREATE TABLE IF NOT EXISTS review_log (
-			id             INTEGER PRIMARY KEY AUTOINCREMENT,
-			word_id        INTEGER NOT NULL,
-			rating         INTEGER NOT NULL,
-			elapsed_hours  REAL NOT NULL DEFAULT 0,
-			stability      REAL NOT NULL DEFAULT 1.0,
-			timestamp      TEXT NOT NULL DEFAULT (datetime('now'))
-		);
-	`)
-	if err != nil {
-		t.Fatalf("create tables: %v", err)
-	}
 	return db
 }
 
-func insertTestWord(db *sql.DB, id int64, stability, difficulty float64) {
+func insertTestWord(db *database.DB, id int64, stability, difficulty float64) {
 	db.Exec(`INSERT INTO words (id, text, box, next_due, stability, difficulty)
 		VALUES (?, 'test', 0, '2026-01-01', ?, ?)`, id, stability, difficulty)
 }

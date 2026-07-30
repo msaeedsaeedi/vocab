@@ -1,12 +1,13 @@
 package seed
 
 import (
-	"database/sql"
 	"encoding/json"
-	_ "embed"
 	"fmt"
 	"os"
 
+	_ "embed"
+
+	"github.com/msaeedsaeedi/vocab/internal/database"
 	"github.com/msaeedsaeedi/vocab/internal/word"
 )
 
@@ -14,25 +15,25 @@ import (
 var wordsJSON []byte
 
 type rawWord struct {
-	Word     string `json:"word"`
-	Meaning  string `json:"meaning"`
-	Usage    string `json:"usage"`
-	Pos      string `json:"pos,omitempty"`
+	Word    string `json:"word"`
+	Meaning string `json:"meaning"`
+	Usage   string `json:"usage"`
+	Pos     string `json:"pos,omitempty"`
 }
 
-func FromJSON(db *sql.DB, path string) error {
+func FromJSON(db *database.DB, path string) error {
 	return FromJSONReader(db, func() ([]byte, error) {
 		return os.ReadFile(path)
 	})
 }
 
-func FromJSONBytes(db *sql.DB, data []byte) error {
+func FromJSONBytes(db *database.DB, data []byte) error {
 	return FromJSONReader(db, func() ([]byte, error) {
 		return data, nil
 	})
 }
 
-func FromJSONReader(db *sql.DB, readFn func() ([]byte, error)) error {
+func FromJSONReader(db *database.DB, readFn func() ([]byte, error)) error {
 	data, err := readFn()
 	if err != nil {
 		return fmt.Errorf("read seed file: %w", err)
@@ -59,25 +60,25 @@ func FromJSONReader(db *sql.DB, readFn func() ([]byte, error)) error {
 	return nil
 }
 
-func MustFromJSON(db *sql.DB, path string) {
+func MustFromJSON(db *database.DB, path string) {
 	if err := FromJSON(db, path); err != nil {
 		fmt.Fprintf(os.Stderr, "seed: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func MustFromJSONBytes(db *sql.DB, data []byte) {
+func MustFromJSONBytes(db *database.DB, data []byte) {
 	if err := FromJSONBytes(db, data); err != nil {
 		fmt.Fprintf(os.Stderr, "seed: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func MustFromEmbedded(db *sql.DB) {
+func MustFromEmbedded(db *database.DB) {
 	MustFromJSONBytes(db, wordsJSON)
 }
 
-func Needed(db *sql.DB) (bool, error) {
+func Needed(db *database.DB) (bool, error) {
 	n, err := word.Count(db)
 	if err != nil {
 		return false, err

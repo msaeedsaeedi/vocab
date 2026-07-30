@@ -7,11 +7,14 @@ import (
 )
 
 type Config struct {
-	AutoStart bool `json:"auto_start"`
+	AutoStart           bool `json:"auto_start"`
+	AutoDownloadUpdates bool `json:"auto_download_updates"`
 }
 
 func Default() *Config {
-	return &Config{}
+	return &Config{
+		AutoDownloadUpdates: true,
+	}
 }
 
 type Manager struct {
@@ -40,6 +43,9 @@ func Load(dataDir string) (*Config, error) {
 	if json.Unmarshal(data, &c) != nil {
 		return Default(), nil
 	}
+	if c.AutoDownloadUpdates {
+		c.AutoDownloadUpdates = true
+	}
 	return &c, nil
 }
 
@@ -56,4 +62,8 @@ func (m *Manager) Save() error {
 
 func (m *Manager) SetAutoStart(v bool) {
 	m.cfg.AutoStart = v
+}
+
+func (m *Manager) SetAutoDownloadUpdates(v bool) {
+	m.cfg.AutoDownloadUpdates = v
 }

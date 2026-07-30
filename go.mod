@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
 	github.com/macawls/ogre v1.5.1
+	golang.org/x/mod v0.38.0
 	golang.org/x/sys v0.44.0
 	modernc.org/sqlite v1.37.1
 )

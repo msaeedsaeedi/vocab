@@ -1,10 +1,11 @@
 package engage
 
 import (
-	"database/sql"
 	"log"
 	"math"
 	"time"
+
+	"github.com/msaeedsaeedi/vocab/internal/database"
 )
 
 const (
@@ -19,10 +20,10 @@ const (
 )
 
 type Tracker struct {
-	db *sql.DB
+	db *database.DB
 }
 
-func New(db *sql.DB) *Tracker {
+func New(db *database.DB) *Tracker {
 	return &Tracker{db: db}
 }
 

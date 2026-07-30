@@ -44,3 +44,34 @@ func TestOpenInvalidPath(t *testing.T) {
 		t.Fatal("expected error for invalid path")
 	}
 }
+
+func TestMigrationVersion(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	var version int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("query schema_version: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("expected schema version 1, got %d", version)
+	}
+}
+
+func TestReopenIdempotent(t *testing.T) {
+	path := t.TempDir() + "/test.db"
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+	db.Close()
+
+	db, err = Open(path)
+	if err != nil {
+		t.Fatalf("second Open: %v", err)
+	}
+	db.Close()
+}

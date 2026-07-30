@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -14,11 +13,13 @@ import (
 	"time"
 
 	"github.com/msaeedsaeedi/vocab/internal/autostart"
+	"github.com/msaeedsaeedi/vocab/internal/config"
 	"github.com/msaeedsaeedi/vocab/internal/database"
 	"github.com/msaeedsaeedi/vocab/internal/engage"
 	"github.com/msaeedsaeedi/vocab/internal/notify"
 	"github.com/msaeedsaeedi/vocab/internal/scheduler"
 	"github.com/msaeedsaeedi/vocab/internal/seed"
+	"github.com/msaeedsaeedi/vocab/internal/updater"
 	"github.com/msaeedsaeedi/vocab/internal/wallpaper"
 	"github.com/msaeedsaeedi/vocab/internal/word"
 )
@@ -40,6 +41,8 @@ func main() {
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
 	preview := flag.Bool("preview", false, "Generate wallpaper preview to preview.jpg without setting it")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	checkUpdate := flag.Bool("check-update", false, "Check for update and print result")
+	installUpdate := flag.Bool("install-update", false, "Install cached update if available")
 	flag.Parse()
 
 	if *showVersion {
@@ -71,7 +74,7 @@ func main() {
 	defer logFile.Close()
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.Printf("=== vocab started (pid=%d, os=%s) ===", os.Getpid(), runtime.GOOS)
+	log.Printf("=== vocab started (pid=%d, os=%s, version=%s) ===", os.Getpid(), runtime.GOOS, version)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -79,10 +82,23 @@ func main() {
 	db := openDB(*resetDB)
 	defer db.Close()
 
+	cfg := openConfig()
+	up := updater.New(cfg, dataDir(), version, "msaeedsaeedi", "vocab")
+
 	seedIfNeeded(db)
 
 	if *register {
 		doRegister()
+		return
+	}
+
+	if *checkUpdate {
+		doCheckUpdate(ctx, up)
+		return
+	}
+
+	if *installUpdate {
+		doInstallUpdate(up)
 		return
 	}
 
@@ -97,10 +113,10 @@ func main() {
 		enableAutostart()
 	}
 
-	runDaemon(ctx, db)
+	runDaemon(ctx, db, cfg, up)
 }
 
-func handleReviewCommand(db *sql.DB, id int64, knew bool) error {
+func handleReviewCommand(db *database.DB, id int64, knew bool) error {
 	log.Printf("review: id=%d knew=%v", id, knew)
 	tr := engage.New(db)
 
@@ -142,7 +158,7 @@ func dataDir() string {
 	return filepath.Join(home, ".local", "share", "vocab")
 }
 
-func openDB(reset bool) *sql.DB {
+func openDB(reset bool) *database.DB {
 	dir := dataDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		log.Fatalf("cannot create data dir %s: %v", dir, err)
@@ -165,7 +181,16 @@ func openDB(reset bool) *sql.DB {
 	return db
 }
 
-func seedIfNeeded(db *sql.DB) {
+func openConfig() *config.Manager {
+	m, err := config.NewManager(dataDir())
+	if err != nil {
+		log.Printf("config: %v (using defaults)", err)
+		return nil
+	}
+	return m
+}
+
+func seedIfNeeded(db *database.DB) {
 	needed, err := seed.Needed(db)
 	if err != nil {
 		log.Fatalf("check seed: %v", err)
@@ -213,11 +238,41 @@ func doRegister() {
 	log.Print("notification app registered")
 }
 
-func runDaemon(ctx context.Context, db *sql.DB) {
+func doCheckUpdate(ctx context.Context, up *updater.Updater) {
+	res, err := up.CheckAndDownload(ctx)
+	if err != nil {
+		log.Fatalf("update check failed: %v", err)
+	}
+	if !res.HasUpdate {
+		fmt.Println("No update available")
+		return
+	}
+	fmt.Printf("Update available: %s\n", res.LatestVersion)
+	if res.InstallerPath != "" {
+		fmt.Printf("Installer cached at: %s\n", res.InstallerPath)
+	}
+}
+
+func doInstallUpdate(up *updater.Updater) {
+	for _, tag := range []string{"v" + version, ""} {
+		if path, ok := up.HasCachedInstaller(tag); ok {
+			log.Printf("installing cached update: %s", path)
+			if err := up.Install(path); err != nil {
+				log.Fatalf("install: %v", err)
+			}
+			return
+		}
+	}
+	log.Print("no cached installer found; run --check-update first")
+}
+
+func runDaemon(ctx context.Context, db *database.DB, cfg *config.Manager, up *updater.Updater) {
 	log.Print("daemon started")
 	tr := engage.New(db)
 
 	resumeAmbientSession(ctx, db, tr)
+
+	lastUpdateCheck := time.Time{}
 
 	for {
 		select {
@@ -225,6 +280,11 @@ func runDaemon(ctx context.Context, db *sql.DB) {
 			log.Print("shutting down daemon")
 			return
 		default:
+		}
+
+		if time.Since(lastUpdateCheck) > 24*time.Hour {
+			checkForUpdate(ctx, up)
+			lastUpdateCheck = time.Now()
 		}
 
 		now := time.Now()
@@ -307,7 +367,23 @@ func runDaemon(ctx context.Context, db *sql.DB) {
 	}
 }
 
-func presentWord(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func checkForUpdate(ctx context.Context, up *updater.Updater) {
+	res, err := up.CheckAndDownload(ctx)
+	if err != nil {
+		log.Printf("update check: %v", err)
+		return
+	}
+	if !res.HasUpdate {
+		log.Print("update check: no update available")
+		return
+	}
+	log.Printf("update available: %s", res.LatestVersion)
+	if res.InstallerPath != "" {
+		log.Printf("update downloaded, will install on next `--install-update`")
+	}
+}
+
+func presentWord(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("=== presenting word: id=%d text=%q", w.ID, w.Text)
 
 	if err := phraseExpose(ctx, db, tr, w); err != nil {
@@ -324,7 +400,7 @@ func presentWord(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Wor
 	return nil
 }
 
-func phraseExpose(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func phraseExpose(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("expose: setting wallpaper for %q", w.Text)
 	if err := word.UpdatePhase(db, w.ID, "expose"); err != nil {
 		log.Printf("update phase expose: %v", err)
@@ -333,9 +409,9 @@ func phraseExpose(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Wo
 
 	if err := wallpaper.Render(wallpaper.Word{
 		Text:       w.Text,
-			Definition: w.Definition,
-			Example:    w.Example,
-			Pos:        w.Pos,
+		Definition: w.Definition,
+		Example:    w.Example,
+		Pos:        w.Pos,
 	}, wallpaper.Option{}); err != nil {
 		log.Printf("wallpaper ERROR: %v", err)
 		return err
@@ -351,7 +427,7 @@ func phraseExpose(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Wo
 	return nil
 }
 
-func phaseRecall(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func phaseRecall(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("recall: notifying for word %q (id=%d)", w.Text, w.ID)
 	if err := word.UpdatePhase(db, w.ID, "recall"); err != nil {
 		log.Printf("update phase recall: %v", err)
@@ -373,7 +449,7 @@ func phaseRecall(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Wor
 	return waitForReview(ctx, db, tr, w)
 }
 
-func waitForReview(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Word) error {
+func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
 	log.Printf("waiting for review of word %d (polling 2m, timeout 2h)", w.ID)
 
 	deadline := time.Now().Add(devDuration(2 * time.Hour))
@@ -415,7 +491,7 @@ func waitForReview(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.W
 	}
 }
 
-func resumeAmbientSession(ctx context.Context, db *sql.DB, tr *engage.Tracker) {
+func resumeAmbientSession(ctx context.Context, db *database.DB, tr *engage.Tracker) {
 	wordID, phase := tr.GetCurrentWord()
 	if wordID == 0 {
 		return
@@ -444,7 +520,7 @@ func resumeAmbientSession(ctx context.Context, db *sql.DB, tr *engage.Tracker) {
 	}
 }
 
-func findNextDue(db *sql.DB) time.Time {
+func findNextDue(db *database.DB) time.Time {
 	nextDue, err := word.GetNextDue(db)
 	if err != nil || nextDue == "" {
 		return time.Time{}
@@ -456,7 +532,7 @@ func findNextDue(db *sql.DB) time.Time {
 	return t
 }
 
-func refreshDueWords(db *sql.DB, current []word.Word, excludeID int64) []word.Word {
+func refreshDueWords(db *database.DB, current []word.Word, excludeID int64) []word.Word {
 	filtered := make([]word.Word, 0, len(current)-1)
 	for _, w := range current {
 		if w.ID != excludeID {

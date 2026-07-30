@@ -3,6 +3,8 @@ package word
 import (
 	"database/sql"
 	"fmt"
+
+	"github.com/msaeedsaeedi/vocab/internal/database"
 )
 
 type Word struct {
@@ -10,7 +12,7 @@ type Word struct {
 	Text          string  `json:"text"`
 	Definition    string  `json:"definition"`
 	Example       string  `json:"example"`
-	Pos string `json:"pos,omitempty"`
+	Pos           string  `json:"pos,omitempty"`
 	Box           int     `json:"box"`
 	NextDue       string  `json:"next_due"`
 	Stability     float64 `json:"stability"`
@@ -32,7 +34,7 @@ type ReviewLog struct {
 	Timestamp    string  `json:"timestamp"`
 }
 
-func Insert(db *sql.DB, w *Word) error {
+func Insert(db *database.DB, w *Word) error {
 	res, err := db.Exec(
 		`INSERT INTO words (text, definition, example, pos, box, next_due)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
@@ -49,7 +51,7 @@ func Insert(db *sql.DB, w *Word) error {
 	return nil
 }
 
-func UpdateFeedback(db *sql.DB, id int64, box int, nextDue string) error {
+func UpdateFeedback(db *database.DB, id int64, box int, nextDue string) error {
 	res, err := db.Exec(
 		`UPDATE words SET box = ?, next_due = ? WHERE id = ?`,
 		box, nextDue, id,
@@ -67,7 +69,7 @@ func UpdateFeedback(db *sql.DB, id int64, box int, nextDue string) error {
 	return nil
 }
 
-func UpdateAdaptive(db *sql.DB, id int64, stability, difficulty, bktAlpha, bktBeta float64, reviewCount, lapseCount int, lastReviewed, nextDue, phase string) error {
+func UpdateAdaptive(db *database.DB, id int64, stability, difficulty, bktAlpha, bktBeta float64, reviewCount, lapseCount int, lastReviewed, nextDue, phase string) error {
 	_, err := db.Exec(
 		`UPDATE words SET
 			stability = ?, difficulty = ?, bkt_alpha = ?, bkt_beta = ?,
@@ -84,12 +86,12 @@ func UpdateAdaptive(db *sql.DB, id int64, stability, difficulty, bktAlpha, bktBe
 	return nil
 }
 
-func UpdatePhase(db *sql.DB, id int64, phase string) error {
+func UpdatePhase(db *database.DB, id int64, phase string) error {
 	_, err := db.Exec(`UPDATE words SET exposure_phase = ? WHERE id = ?`, phase, id)
 	return err
 }
 
-func InsertReviewLog(db *sql.DB, log *ReviewLog) error {
+func InsertReviewLog(db *database.DB, log *ReviewLog) error {
 	_, err := db.Exec(
 		`INSERT INTO review_log (word_id, rating, elapsed_hours, stability, timestamp)
 		 VALUES (?, ?, ?, ?, datetime('now'))`,
@@ -98,7 +100,7 @@ func InsertReviewLog(db *sql.DB, log *ReviewLog) error {
 	return err
 }
 
-func GetWord(db *sql.DB, id int64) (*Word, error) {
+func GetWord(db *database.DB, id int64) (*Word, error) {
 	w := &Word{}
 	err := db.QueryRow(
 		`SELECT id, text, definition, example, pos, box, next_due,
@@ -115,7 +117,7 @@ func GetWord(db *sql.DB, id int64) (*Word, error) {
 	return w, nil
 }
 
-func GetDueWords(db *sql.DB, today string) ([]Word, error) {
+func GetDueWords(db *database.DB, today string) ([]Word, error) {
 	rows, err := db.Query(
 		`SELECT id, text, definition, example, pos, box, next_due,
 		        stability, difficulty, bkt_alpha, bkt_beta,
@@ -130,13 +132,13 @@ func GetDueWords(db *sql.DB, today string) ([]Word, error) {
 	return scanWords(rows)
 }
 
-func GetDueWordCount(db *sql.DB, today string) (int, error) {
+func GetDueWordCount(db *database.DB, today string) (int, error) {
 	var n int
 	err := db.QueryRow(`SELECT COUNT(*) FROM words WHERE next_due <= ?`, today).Scan(&n)
 	return n, err
 }
 
-func GetNextDue(db *sql.DB) (string, error) {
+func GetNextDue(db *database.DB) (string, error) {
 	var nextDue string
 	err := db.QueryRow(
 		`SELECT next_due FROM words ORDER BY next_due ASC LIMIT 1`,
@@ -144,7 +146,7 @@ func GetNextDue(db *sql.DB) (string, error) {
 	return nextDue, err
 }
 
-func GetAll(db *sql.DB) ([]Word, error) {
+func GetAll(db *database.DB) ([]Word, error) {
 	rows, err := db.Query(
 		`SELECT id, text, definition, example, pos, box, next_due,
 		        stability, difficulty, bkt_alpha, bkt_beta,
@@ -158,13 +160,13 @@ func GetAll(db *sql.DB) ([]Word, error) {
 	return scanWords(rows)
 }
 
-func Count(db *sql.DB) (int, error) {
+func Count(db *database.DB) (int, error) {
 	var n int
 	err := db.QueryRow(`SELECT COUNT(*) FROM words`).Scan(&n)
 	return n, err
 }
 
-func CountDue(db *sql.DB, today string) (int, error) {
+func CountDue(db *database.DB, today string) (int, error) {
 	var n int
 	err := db.QueryRow(`SELECT COUNT(*) FROM words WHERE next_due <= ?`, today).Scan(&n)
 	return n, err

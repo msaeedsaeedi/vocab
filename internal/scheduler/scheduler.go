@@ -1,16 +1,16 @@
 package scheduler
 
 import (
-	"database/sql"
 	"math"
 	"time"
 
+	"github.com/msaeedsaeedi/vocab/internal/database"
 	"github.com/msaeedsaeedi/vocab/internal/word"
 )
 
 const hoursPerDay = 24.0
 
-func ScheduleReview(db *sql.DB, w *word.Word, rating int) (float64, error) {
+func ScheduleReview(db *database.DB, w *word.Word, rating int) (float64, error) {
 	elapsed := elapsedHours(w.LastReviewed)
 	logEntry := &word.ReviewLog{
 		WordID:       w.ID,
@@ -116,7 +116,7 @@ func Priority(w *word.Word, overdueHours float64) float64 {
 	return (1.0-recall)*0.35 + (1.0-skill)*0.25 + overdueFactor*0.15 + difficultyWeight*0.25
 }
 
-func SelectNextWord(db *sql.DB, dueWords []word.Word) *word.Word {
+func SelectNextWord(db *database.DB, dueWords []word.Word) *word.Word {
 	if len(dueWords) == 0 {
 		return nil
 	}

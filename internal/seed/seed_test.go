@@ -1,44 +1,21 @@
 package seed
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/msaeedsaeedi/vocab/internal/database"
 	"github.com/msaeedsaeedi/vocab/internal/word"
-	_ "modernc.org/sqlite"
 )
 
-func newTestDB(t *testing.T) *sql.DB {
+func newTestDB(t *testing.T) *database.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := database.Open(":memory:")
 	if err != nil {
-		t.Fatalf("open :memory:: %v", err)
+		t.Fatalf("database.Open(\":memory:\"): %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS words (
-			id             INTEGER PRIMARY KEY AUTOINCREMENT,
-			text           TEXT NOT NULL,
-			definition     TEXT NOT NULL DEFAULT '',
-			example        TEXT NOT NULL DEFAULT '',
-			pos            TEXT NOT NULL DEFAULT '',
-			box            INTEGER NOT NULL DEFAULT 0,
-			next_due       TEXT NOT NULL DEFAULT (date('now')),
-			stability      REAL NOT NULL DEFAULT 1.0,
-			difficulty     REAL NOT NULL DEFAULT 0.3,
-			bkt_alpha      REAL NOT NULL DEFAULT 1.0,
-			bkt_beta       REAL NOT NULL DEFAULT 1.0,
-			last_reviewed  TEXT NOT NULL DEFAULT '',
-			review_count   INTEGER NOT NULL DEFAULT 0,
-			lapse_count    INTEGER NOT NULL DEFAULT 0,
-			exposure_phase TEXT NOT NULL DEFAULT ''
-		)
-	`)
-	if err != nil {
-		t.Fatalf("create table: %v", err)
-	}
 	return db
 }
 
