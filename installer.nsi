@@ -12,6 +12,7 @@ Section "Install"
   File "icon.ico"
   File "README.md"
   File "LICENSE"
+  File /r "data"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
@@ -43,6 +44,7 @@ Section "Uninstall"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\uninstall.exe"
+  RMDir /r "$INSTDIR\data"
   RMDir "$INSTDIR"
 
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
