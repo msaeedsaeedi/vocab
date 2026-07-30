@@ -49,13 +49,13 @@ func main() {
 	}
 
 	if *preview {
-		if err := wallpaper.RenderPreview(wallpaper.Word{
-			Text:       "ambiguous",
-			Definition: "Not clear or exact; open to more than one interpretation.",
-			Example:    "Her reply was deliberately ambiguous, leaving room for both readings.",
-			Pos:        "adjective",
-			Phonetic:   "/æmˈbɪɡ.juəs/",
-		}, "preview.jpg", wallpaper.Option{Width: 1920, Height: 1080}); err != nil {
+		w := wallpaper.Word{
+			Text:       "Fortuitous",
+			Definition: "happening by accident",
+			Example:    "Their meeting was entirely fortuitous.",
+			Pos:        "adj.",
+		}
+		if err := wallpaper.RenderPreview(w, "preview.jpg", wallpaper.Option{Width: 1920, Height: 1080}); err != nil {
 			log.Fatalf("preview: %v", err)
 		}
 		fmt.Println("preview.jpg written")
@@ -199,7 +199,6 @@ func findSeedFile() string {
 	return ""
 }
 
-func sleepDev(d time.Duration) { time.Sleep(time.Duration(float64(d) * devFactor)) }
 func devDuration(d time.Duration) time.Duration { return time.Duration(float64(d) * devFactor) }
 
 func sleepDevContext(ctx context.Context, d time.Duration) bool {
@@ -356,8 +355,9 @@ func phraseExpose(ctx context.Context, db *sql.DB, tr *engage.Tracker, w word.Wo
 
 	if err := wallpaper.Render(wallpaper.Word{
 		Text:       w.Text,
-		Definition: w.Definition,
-		Example:    w.Example,
+			Definition: w.Definition,
+			Example:    w.Example,
+			Pos:        w.Pos,
 	}, wallpaper.Option{}); err != nil {
 		log.Printf("wallpaper ERROR: %v", err)
 		return err

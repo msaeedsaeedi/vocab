@@ -24,6 +24,7 @@ func newTestDB(t *testing.T) *sql.DB {
 			text           TEXT NOT NULL,
 			definition     TEXT NOT NULL DEFAULT '',
 			example        TEXT NOT NULL DEFAULT '',
+			pos            TEXT NOT NULL DEFAULT '',
 			box            INTEGER NOT NULL DEFAULT 0,
 			next_due       TEXT NOT NULL DEFAULT (date('now')),
 			stability      REAL NOT NULL DEFAULT 1.0,

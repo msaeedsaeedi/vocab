@@ -14,7 +14,6 @@ type Word struct {
 	Definition string
 	Example    string
 	Pos        string
-	Phonetic   string
 }
 
 type Option struct {
@@ -32,7 +31,6 @@ func RenderPreview(w Word, path string, opt Option) error {
 		definition: w.Definition,
 		example:    w.Example,
 		pos:        w.Pos,
-		phonetic:   w.Phonetic,
 	}, opt.Width, opt.Height)
 	if err != nil {
 		return err
@@ -62,7 +60,6 @@ func renderWithSet(w Word, opt Option, set bool) error {
 		definition: w.Definition,
 		example:    w.Example,
 		pos:        w.Pos,
-		phonetic:   w.Phonetic,
 	}, opt.Width, opt.Height)
 	if err != nil {
 		return err

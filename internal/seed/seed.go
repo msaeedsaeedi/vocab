@@ -10,9 +10,10 @@ import (
 )
 
 type rawWord struct {
-	Word    string `json:"word"`
-	Meaning string `json:"meaning"`
-	Usage   string `json:"usage"`
+	Word     string `json:"word"`
+	Meaning  string `json:"meaning"`
+	Usage    string `json:"usage"`
+	Pos      string `json:"pos,omitempty"`
 }
 
 func FromJSON(db *sql.DB, path string) error {
@@ -43,6 +44,7 @@ func FromJSONReader(db *sql.DB, readFn func() ([]byte, error)) error {
 			Text:       r.Word,
 			Definition: r.Meaning,
 			Example:    r.Usage,
+			Pos:        r.Pos,
 			Box:        0,
 			NextDue:    "1970-01-01",
 		}

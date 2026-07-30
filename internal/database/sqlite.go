@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS words (
     text          TEXT    NOT NULL,
     definition    TEXT    NOT NULL DEFAULT '',
     example       TEXT    NOT NULL DEFAULT '',
+    pos           TEXT    NOT NULL DEFAULT '',
     box           INTEGER NOT NULL DEFAULT 0,
     next_due      TEXT    NOT NULL DEFAULT (date('now')),
     stability     REAL    NOT NULL DEFAULT 1.0,
@@ -71,6 +72,16 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	if !hasColumn(cols, "pos") {
+		for _, stmt := range []string{
+			`ALTER TABLE words ADD COLUMN pos TEXT NOT NULL DEFAULT ''`,
+		} {
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("migrate add column: %w", err)
+			}
+		}
+	}
+
 	if !hasColumn(cols, "stability") {
 		for _, stmt := range []string{
 			`ALTER TABLE words ADD COLUMN stability REAL NOT NULL DEFAULT 1.0`,

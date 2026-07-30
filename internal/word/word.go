@@ -10,6 +10,7 @@ type Word struct {
 	Text          string  `json:"text"`
 	Definition    string  `json:"definition"`
 	Example       string  `json:"example"`
+	Pos string `json:"pos,omitempty"`
 	Box           int     `json:"box"`
 	NextDue       string  `json:"next_due"`
 	Stability     float64 `json:"stability"`
@@ -33,9 +34,9 @@ type ReviewLog struct {
 
 func Insert(db *sql.DB, w *Word) error {
 	res, err := db.Exec(
-		`INSERT INTO words (text, definition, example, box, next_due)
-		 VALUES (?, ?, ?, ?, ?)`,
-		w.Text, w.Definition, w.Example, w.Box, w.NextDue,
+		`INSERT INTO words (text, definition, example, pos, box, next_due)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		w.Text, w.Definition, w.Example, w.Pos, w.Box, w.NextDue,
 	)
 	if err != nil {
 		return fmt.Errorf("insert word: %w", err)
@@ -100,11 +101,12 @@ func InsertReviewLog(db *sql.DB, log *ReviewLog) error {
 func GetWord(db *sql.DB, id int64) (*Word, error) {
 	w := &Word{}
 	err := db.QueryRow(
-		`SELECT id, text, definition, example, box, next_due,
+		`SELECT id, text, definition, example, pos, box, next_due,
 		        stability, difficulty, bkt_alpha, bkt_beta,
 		        last_reviewed, review_count, lapse_count, exposure_phase
 		 FROM words WHERE id = ?`, id,
-	).Scan(&w.ID, &w.Text, &w.Definition, &w.Example, &w.Box, &w.NextDue,
+	).Scan(&w.ID, &w.Text, &w.Definition, &w.Example, &w.Pos,
+		&w.Box, &w.NextDue,
 		&w.Stability, &w.Difficulty, &w.BktAlpha, &w.BktBeta,
 		&w.LastReviewed, &w.ReviewCount, &w.LapseCount, &w.ExposurePhase)
 	if err != nil {
@@ -115,7 +117,7 @@ func GetWord(db *sql.DB, id int64) (*Word, error) {
 
 func GetDueWords(db *sql.DB, today string) ([]Word, error) {
 	rows, err := db.Query(
-		`SELECT id, text, definition, example, box, next_due,
+		`SELECT id, text, definition, example, pos, box, next_due,
 		        stability, difficulty, bkt_alpha, bkt_beta,
 		        last_reviewed, review_count, lapse_count, exposure_phase
 		 FROM words WHERE next_due <= ?
@@ -144,7 +146,7 @@ func GetNextDue(db *sql.DB) (string, error) {
 
 func GetAll(db *sql.DB) ([]Word, error) {
 	rows, err := db.Query(
-		`SELECT id, text, definition, example, box, next_due,
+		`SELECT id, text, definition, example, pos, box, next_due,
 		        stability, difficulty, bkt_alpha, bkt_beta,
 		        last_reviewed, review_count, lapse_count, exposure_phase
 		 FROM words ORDER BY id`,
@@ -173,6 +175,7 @@ func scanWords(rows *sql.Rows) ([]Word, error) {
 	for rows.Next() {
 		var w Word
 		if err := rows.Scan(&w.ID, &w.Text, &w.Definition, &w.Example,
+			&w.Pos,
 			&w.Box, &w.NextDue,
 			&w.Stability, &w.Difficulty, &w.BktAlpha, &w.BktBeta,
 			&w.LastReviewed, &w.ReviewCount, &w.LapseCount, &w.ExposurePhase); err != nil {
