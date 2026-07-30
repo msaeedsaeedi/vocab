@@ -39,19 +39,20 @@ type tmplData struct {
 	Example    template.HTML
 	Pos        string
 }
+
 // TODO: Highlight word in the example sentence. (It may need to update beneath data structure to include the highlighted word's position in the example sentence.)
 var pageTmpl = template.Must(template.New("wallpaper").Parse(
 	`<div style="position:relative;width:{{.Width}}px;height:{{.Height}}px;">` +
 		`<img src="{{.BgImage}}" style="position:absolute;top:0;left:0;width:100%;height:100%;" />` +
 		`<div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:flex-end;padding-right:160px;">` +
-			`<div style="display:flex;flex-direction:column;align-items:flex-end;text-align:right">` +
-				`<div style="font-family:Inter-Italic;font-size:36px;color:rgb(135, 159, 181);letter-spacing:0.02em;position:relative;z-index:1;margin-bottom:-36px;">{{.Pos}}</div>` +
-				`<div style="font-family:Fraunces;font-size:164px;color:#FFFFFF;text-align: right;">{{.Text}}</div>` +
-				`<div style="font-family:Inter;font-size:36px;color:#d0d1d2;margin-top:18px;">{{.Definition}}</div>` +
-				`<div style="font-family:Inter-Italic;font-size:32px;color:#a2a5a8;margin-top:64px;">― {{.Example}}</div>` +
-			`</div>` +
+		`<div style="display:flex;flex-direction:column;align-items:flex-end;text-align:right">` +
+		`<div style="font-family:Inter-Italic;font-size:36px;color:rgb(135, 159, 181);letter-spacing:0.02em;position:relative;z-index:1;margin-bottom:-36px;">{{.Pos}}</div>` +
+		`<div style="font-family:Fraunces;font-size:164px;color:#FFFFFF;text-align: right;">{{.Text}}</div>` +
+		`<div style="font-family:Inter;font-size:36px;color:#d0d1d2;margin-top:18px;">{{.Definition}}</div>` +
+		`<div style="font-family:Inter-Italic;font-size:32px;color:#a2a5a8;margin-top:64px;">― {{.Example}}</div>` +
 		`</div>` +
-	`</div>`,
+		`</div>` +
+		`</div>`,
 ))
 
 var (
