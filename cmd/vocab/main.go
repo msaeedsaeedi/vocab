@@ -173,30 +173,8 @@ func seedIfNeeded(db *sql.DB) {
 	if !needed {
 		return
 	}
-	seedPath := findSeedFile()
-	if seedPath != "" {
-		seed.MustFromJSON(db, seedPath)
-		log.Printf("seeded from %s", seedPath)
-	} else {
-		log.Print("no seed file found, will retry on next run")
-	}
-}
-
-func findSeedFile() string {
-	candidates := []string{"data/words.json"}
-	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates,
-			filepath.Join(filepath.Dir(exe), "data", "words.json"),
-			filepath.Join(filepath.Dir(exe), "words.json"),
-		)
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	log.Printf("seed file not found (tried: %v)", candidates)
-	return ""
+	log.Print("seeding database from embedded data")
+	seed.MustFromEmbedded(db)
 }
 
 func devDuration(d time.Duration) time.Duration { return time.Duration(float64(d) * devFactor) }

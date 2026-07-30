@@ -27,7 +27,6 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
-      - data/*.json
       - README.md
       - LICENSE
 

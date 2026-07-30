@@ -3,11 +3,15 @@ package seed
 import (
 	"database/sql"
 	"encoding/json"
+	_ "embed"
 	"fmt"
 	"os"
 
 	"github.com/msaeedsaeedi/vocab/internal/word"
 )
+
+//go:embed words.json
+var wordsJSON []byte
 
 type rawWord struct {
 	Word     string `json:"word"`
@@ -67,6 +71,10 @@ func MustFromJSONBytes(db *sql.DB, data []byte) {
 		fmt.Fprintf(os.Stderr, "seed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func MustFromEmbedded(db *sql.DB) {
+	MustFromJSONBytes(db, wordsJSON)
 }
 
 func Needed(db *sql.DB) (bool, error) {
