@@ -1,11 +1,8 @@
-//go:build windows
+//go:build !windows
 
 package updater
 
-import (
-	"fmt"
-	"os/exec"
-)
+import "fmt"
 
 type InstallerLauncher struct{}
 
@@ -14,9 +11,5 @@ func NewInstallerLauncher() *InstallerLauncher {
 }
 
 func (l *InstallerLauncher) Install(path string) error {
-	cmd := exec.Command(path, "/S")
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("launch windows installer: %w", err)
-	}
-	return nil
+	return fmt.Errorf("installing updates is not supported on this platform")
 }

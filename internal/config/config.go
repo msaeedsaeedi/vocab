@@ -43,9 +43,6 @@ func Load(dataDir string) (*Config, error) {
 	if json.Unmarshal(data, &c) != nil {
 		return Default(), nil
 	}
-	if c.AutoDownloadUpdates {
-		c.AutoDownloadUpdates = true
-	}
 	return &c, nil
 }
 
