@@ -23,7 +23,7 @@ Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-
 - **Two-phase learning** — Words first appear on your wallpaper for passive absorption, then trigger a notification to test recall.
 - **FSRS + BKT scheduler** — Combines Free Spaced Repetition Scheduler with Bayesian Knowledge Tracing for optimal review timing.
 - **Adaptive pacing** — Automatically adjusts daily word count and active hours based on your engagement patterns.
-- **Zero configuration** — Seeds 30 starter words from JSON; just run and learn.
+- **Versioned Lexicon data** — Uses a verified, read-only Lexicon SQLite bundle while keeping learner state local.
 - **Autostart support** — Registers itself in the Windows Registry to launch on login.
 - **Dev mode** — 60× faster timeouts for testing (`-dev` flag).
 
@@ -31,7 +31,12 @@ Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-
 
 ### Windows Installer (recommended)
 
-Download the latest `Vocab-*-windows-amd64-setup.exe` from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases). The installer:
+Download either installer from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases):
+
+- `Vocab-*-windows-amd64-offline-setup.exe` includes a verified Lexicon bundle.
+- `Vocab-*-windows-amd64-online-setup.exe` downloads and verifies the latest compatible immutable bundle on first run.
+
+Both installers:
 
 - Installs to `Program Files\Vocab`
 - Registers Vocab to start automatically on login
@@ -65,7 +70,7 @@ vocab.exe -daemon
 vocab.exe -daemon -dev
 ```
 
-Once running, Vocab will seed its database, render your first word on the desktop wallpaper, and begin the learning loop.
+Once running, Vocab activates an offline Lexicon bundle when included by the installer, or downloads and verifies the latest compatible immutable release before learning begins.
 
 ## Usage
 
@@ -73,7 +78,8 @@ Once running, Vocab will seed its database, render your first word on the deskto
 |------|-------------|
 | `-daemon` | Run as a background daemon |
 | `-dev` | Dev mode — 60× faster timeouts |
-| `-reset-db` | Delete database and re-seed |
+| `-reset-db` | Delete Vocab learner state and start fresh |
+| `-install-lexicon <dir>` | Verify, install, and activate a Lexicon release bundle |
 | `-review <id>` | Record feedback for word by ID |
 | `-knew` | Used with `-review` to mark word as known |
 | `-preview` | Generate a wallpaper preview image |
@@ -120,11 +126,12 @@ Data is stored at `%APPDATA%/vocab/`:
 
 | File | Purpose |
 |------|---------|
-| `vocab.db` | SQLite database with words, review log, and engagement data |
+| `vocab.db` | SQLite database with learner items, scheduling, reviews, engagement, settings, and dataset metadata |
+| `datasets/` | Verified read-only Lexicon bundles; the active bundle is recorded in `vocab.db` |
 | `config.json` | User configuration (active window, words per day) |
 | `wallpaper.jpg` | Current word rendered as wallpaper |
 
-Words are seeded from `data/words.json`. You can add your own words to this file (it's looked up relative to the executable).
+Canonical lexical content is never copied into `vocab.db`. Vocab queries `lexemes`, `senses`, `definitions`, and `examples` from the active Lexicon SQLite file in read-only mode.
 
 ## Development
 

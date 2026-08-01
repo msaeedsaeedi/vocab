@@ -20,6 +20,7 @@
 
 # Generated coverage report (make coverage)
 coverage.html
+/.cache/
 
 # IDE
 .vscode/

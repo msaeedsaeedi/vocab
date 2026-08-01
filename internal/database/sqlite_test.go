@@ -17,11 +17,11 @@ func TestOpen(t *testing.T) {
 	}
 
 	var tables int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='words'`).Scan(&tables); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='learning_items'`).Scan(&tables); err != nil {
 		t.Fatalf("count tables: %v", err)
 	}
 	if tables != 1 {
-		t.Fatal("words table not found after Open")
+		t.Fatal("learning_items table not found after Open")
 	}
 }
 
@@ -56,8 +56,8 @@ func TestMigrationVersion(t *testing.T) {
 	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("query schema_version: %v", err)
 	}
-	if version != 1 {
-		t.Fatalf("expected schema version 1, got %d", version)
+	if version != 2 {
+		t.Fatalf("expected schema version 2, got %d", version)
 	}
 }
 

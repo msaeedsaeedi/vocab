@@ -20,8 +20,8 @@ func newTestDB(t *testing.T) *database.DB {
 }
 
 func insertTestWord(db *database.DB, id int64, stability, difficulty float64) {
-	db.Exec(`INSERT INTO words (id, text, box, next_due, stability, difficulty)
-		VALUES (?, 'test', 0, '2026-01-01', ?, ?)`, id, stability, difficulty)
+	db.Exec(`INSERT INTO learning_items (id, lexeme_id, dataset_version, box, next_due, stability, difficulty)
+		VALUES (?, ?, '0.4.0', 0, '2026-01-01', ?, ?)`, id, "test", stability, difficulty)
 }
 
 func TestRecallProbability(t *testing.T) {
@@ -135,7 +135,7 @@ func TestScheduleReviewCorrect(t *testing.T) {
 	}
 
 	var logCount int
-	db.QueryRow(`SELECT COUNT(*) FROM review_log WHERE word_id = 1`).Scan(&logCount)
+	db.QueryRow(`SELECT COUNT(*) FROM review_events WHERE learning_item_id = 1`).Scan(&logCount)
 	if logCount != 1 {
 		t.Errorf("expected 1 review log entry, got %d", logCount)
 	}

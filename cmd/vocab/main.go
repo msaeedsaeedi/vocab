@@ -15,10 +15,11 @@ import (
 	"github.com/msaeedsaeedi/vocab/internal/autostart"
 	"github.com/msaeedsaeedi/vocab/internal/config"
 	"github.com/msaeedsaeedi/vocab/internal/database"
+	"github.com/msaeedsaeedi/vocab/internal/dataset"
 	"github.com/msaeedsaeedi/vocab/internal/engage"
+	"github.com/msaeedsaeedi/vocab/internal/lexicon"
 	"github.com/msaeedsaeedi/vocab/internal/notify"
 	"github.com/msaeedsaeedi/vocab/internal/scheduler"
-	"github.com/msaeedsaeedi/vocab/internal/seed"
 	"github.com/msaeedsaeedi/vocab/internal/updater"
 	"github.com/msaeedsaeedi/vocab/internal/wallpaper"
 	"github.com/msaeedsaeedi/vocab/internal/word"
@@ -33,7 +34,8 @@ var (
 )
 
 func main() {
-	resetDB := flag.Bool("reset-db", false, "Delete database and re-seed")
+	resetDB := flag.Bool("reset-db", false, "Delete Vocab learner state and start fresh")
+	lexiconBundle := flag.String("install-lexicon", "", "Install and activate a verified Lexicon bundle directory")
 	reviewID := flag.Int64("review", 0, "Word ID to record feedback for")
 	knewIt := flag.Bool("knew", false, "Whether the user knew the word (used with --review)")
 	register := flag.Bool("register", false, "Register app for Windows notifications")
@@ -85,8 +87,15 @@ func main() {
 	cfg := openConfig()
 	up := updater.New(cfg, dataDir(), version, "msaeedsaeedi", "vocab")
 
-	seedIfNeeded(db)
-
+	if *lexiconBundle != "" {
+		ds, err := dataset.Install(db, *lexiconBundle, filepath.Join(dataDir(), "datasets"))
+		if err != nil {
+			log.Fatalf("install Lexicon: %v", err)
+		}
+		defer ds.Close()
+		fmt.Printf("Lexicon %s activated\n", ds.DatasetVersion)
+		return
+	}
 	if *register {
 		doRegister()
 		return
@@ -113,7 +122,9 @@ func main() {
 		enableAutostart()
 	}
 
-	runDaemon(ctx, db, cfg, up)
+	ds := openLexicon(ctx, db)
+	defer ds.Close()
+	runDaemon(ctx, db, ds, cfg, up)
 }
 
 func handleReviewCommand(db *database.DB, id int64, knew bool) error {
@@ -190,16 +201,31 @@ func openConfig() *config.Manager {
 	return m
 }
 
-func seedIfNeeded(db *database.DB) {
-	needed, err := seed.Needed(db)
-	if err != nil {
-		log.Fatalf("check seed: %v", err)
+func openLexicon(ctx context.Context, db *database.DB) *lexicon.Dataset {
+	ds, err := dataset.Active(db)
+	if err == nil {
+		return ds
 	}
-	if !needed {
-		return
+	// The offline installer places the immutable bundle beside the executable.
+	exe, exeErr := os.Executable()
+	if exeErr == nil {
+		bundle := filepath.Join(filepath.Dir(exe), "lexicon")
+		if _, statErr := os.Stat(bundle); statErr == nil {
+			ds, installErr := dataset.InstallBundled(db, bundle, filepath.Join(dataDir(), "datasets"))
+			if installErr == nil {
+				return ds
+			}
+			log.Printf("offline Lexicon bundle at %s failed to activate: %v", bundle, installErr)
+		}
 	}
-	log.Print("seeding database from embedded data")
-	seed.MustFromEmbedded(db)
+	log.Print("no offline Lexicon bundle found; downloading the latest compatible Lexicon release")
+	ds, downloadErr := dataset.DownloadAndInstall(ctx, db, filepath.Join(dataDir(), "datasets"))
+	if downloadErr == nil {
+		return ds
+	}
+	err = downloadErr
+	log.Fatalf("Lexicon dataset is required before learning can begin: install an offline bundle or run -install-lexicon <bundle-dir> (%v)", err)
+	return nil
 }
 
 func devDuration(d time.Duration) time.Duration { return time.Duration(float64(d) * devFactor) }
@@ -266,13 +292,14 @@ func doInstallUpdate(up *updater.Updater) {
 	log.Print("no cached installer found; run --check-update first")
 }
 
-func runDaemon(ctx context.Context, db *database.DB, cfg *config.Manager, up *updater.Updater) {
+func runDaemon(ctx context.Context, db *database.DB, ds *lexicon.Dataset, cfg *config.Manager, up *updater.Updater) {
 	log.Print("daemon started")
 	tr := engage.New(db)
 
-	resumeAmbientSession(ctx, db, tr)
+	resumeAmbientSession(ctx, db, ds, tr)
 
 	lastUpdateCheck := time.Time{}
+	lastDatasetCheck := time.Time{}
 
 	for {
 		select {
@@ -285,6 +312,19 @@ func runDaemon(ctx context.Context, db *database.DB, cfg *config.Manager, up *up
 		if time.Since(lastUpdateCheck) > 24*time.Hour {
 			checkForUpdate(ctx, up)
 			lastUpdateCheck = time.Now()
+		}
+		if time.Since(lastDatasetCheck) > 24*time.Hour {
+			updated, changed, err := dataset.CheckAndInstallUpdate(ctx, db, filepath.Join(dataDir(), "datasets"))
+			if err != nil {
+				log.Printf("Lexicon update check: %v", err)
+			} else if changed {
+				log.Printf("Lexicon dataset updated to %s", updated.DatasetVersion)
+				ds.Close()
+				ds = updated
+			} else {
+				log.Print("Lexicon update check: no newer compatible release")
+			}
+			lastDatasetCheck = time.Now()
 		}
 
 		now := time.Now()
@@ -310,6 +350,16 @@ func runDaemon(ctx context.Context, db *database.DB, cfg *config.Manager, up *up
 			sleepDevContext(ctx, 30*time.Minute)
 			continue
 		}
+		if len(dueWords) == 0 {
+			if err := introduceItems(db, ds, wordsPerDay); err != nil {
+				log.Printf("introduce learner items: %v", err)
+			}
+			dueWords, err = word.GetDueWords(db, now.Format("2006-01-02"))
+			if err != nil {
+				log.Printf("refresh introduced items: %v", err)
+				continue
+			}
+		}
 
 		presented := 0
 		for presented < wordsPerDay && len(dueWords) > 0 {
@@ -318,6 +368,10 @@ func runDaemon(ctx context.Context, db *database.DB, cfg *config.Manager, up *up
 				break
 			}
 
+			if err := hydrateWord(ds, w); err != nil {
+				log.Printf("load lexical content for %s: %v", w.LexemeID, err)
+				continue
+			}
 			if err := presentWord(ctx, db, tr, *w); err != nil {
 				log.Printf("present word %d: %v", w.ID, err)
 			}
@@ -491,7 +545,7 @@ func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w w
 	}
 }
 
-func resumeAmbientSession(ctx context.Context, db *database.DB, tr *engage.Tracker) {
+func resumeAmbientSession(ctx context.Context, db *database.DB, ds *lexicon.Dataset, tr *engage.Tracker) {
 	wordID, phase := tr.GetCurrentWord()
 	if wordID == 0 {
 		return
@@ -502,6 +556,11 @@ func resumeAmbientSession(ctx context.Context, db *database.DB, tr *engage.Track
 	w, err := word.GetWord(db, wordID)
 	if err != nil {
 		log.Printf("resume: word %d not found: %v", wordID, err)
+		tr.ClearCurrentWord()
+		return
+	}
+	if err := hydrateWord(ds, w); err != nil {
+		log.Printf("resume: load lexical content for %s: %v", w.LexemeID, err)
 		tr.ClearCurrentWord()
 		return
 	}
@@ -518,6 +577,60 @@ func resumeAmbientSession(ctx context.Context, db *database.DB, tr *engage.Track
 			log.Printf("resume review ERROR: %v", err)
 		}
 	}
+}
+
+func hydrateWord(ds *lexicon.Dataset, w *word.Word) error {
+	entry, err := ds.Entry(w.LexemeID)
+	if err != nil {
+		return err
+	}
+	w.SenseID = entry.SenseID
+	w.Text = entry.Lemma
+	w.Definition = entry.Definition
+	w.Example = entry.Example
+	w.Pos = entry.PartOfSpeech
+	return nil
+}
+
+func introduceItems(db *database.DB, ds *lexicon.Dataset, count int) error {
+	existing, err := word.GetAll(db)
+	if err != nil {
+		return err
+	}
+	known := make(map[string]bool, len(existing))
+	for _, item := range existing {
+		if item.DatasetVersion == ds.DatasetVersion {
+			known[item.LexemeID] = true
+		}
+	}
+	// Fetch more IDs than necessary so unavailable or already-learned lexical
+	// records do not prevent the daily introduction target from being reached.
+	ids, err := ds.DisplayableLexemeIDs(len(known) + count + 32)
+	if err != nil {
+		return err
+	}
+	introduced := 0
+	for _, id := range ids {
+		if known[id] {
+			continue
+		}
+		entry, err := ds.Entry(id)
+		if err != nil {
+			continue
+		}
+		item := word.Word{LexemeID: entry.LexemeID, SenseID: entry.SenseID, DatasetVersion: ds.DatasetVersion, NextDue: "1970-01-01"}
+		if err := word.Insert(db, &item); err != nil {
+			return err
+		}
+		introduced++
+		if introduced == count {
+			break
+		}
+	}
+	if introduced == 0 {
+		return fmt.Errorf("no unlearned displayable lexemes remain")
+	}
+	return nil
 }
 
 func findNextDue(db *database.DB) time.Time {

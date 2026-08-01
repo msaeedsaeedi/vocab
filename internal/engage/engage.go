@@ -185,7 +185,7 @@ func (t *Tracker) windowEngagementScore() float64 {
 
 func (t *Tracker) getDaemonState(key string) *int {
 	var val string
-	err := t.db.QueryRow(`SELECT value FROM daemon_state WHERE key = ?`, key).Scan(&val)
+	err := t.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&val)
 	if err != nil || val == "" {
 		return nil
 	}
@@ -204,7 +204,7 @@ func (t *Tracker) getDaemonState(key string) *int {
 func (t *Tracker) putDaemonState(key string, val int) {
 	valStr := intToStr(val)
 	if _, err := t.db.Exec(
-		`INSERT INTO daemon_state (key, value) VALUES (?, ?)
+		`INSERT INTO settings (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = ?`,
 		key, valStr, valStr,
 	); err != nil {
@@ -215,7 +215,7 @@ func (t *Tracker) putDaemonState(key string, val int) {
 func (t *Tracker) PutLastWordTime(tm time.Time) {
 	val := tm.Format(time.RFC3339)
 	if _, err := t.db.Exec(
-		`INSERT INTO daemon_state (key, value) VALUES ('last_word_time', ?)
+		`INSERT INTO settings (key, value) VALUES ('last_word_time', ?)
 		 ON CONFLICT(key) DO UPDATE SET value = ?`, val, val,
 	); err != nil {
 		log.Printf("engage: PutLastWordTime: %v", err)
@@ -224,7 +224,7 @@ func (t *Tracker) PutLastWordTime(tm time.Time) {
 
 func (t *Tracker) GetLastWordTime() (time.Time, bool) {
 	var val string
-	err := t.db.QueryRow(`SELECT value FROM daemon_state WHERE key = 'last_word_time'`).Scan(&val)
+	err := t.db.QueryRow(`SELECT value FROM settings WHERE key = 'last_word_time'`).Scan(&val)
 	if err != nil || val == "" {
 		return time.Time{}, false
 	}
@@ -238,7 +238,7 @@ func (t *Tracker) GetLastWordTime() (time.Time, bool) {
 func (t *Tracker) PutLastNotificationTime(tm time.Time) {
 	val := tm.Format(time.RFC3339)
 	if _, err := t.db.Exec(
-		`INSERT INTO daemon_state (key, value) VALUES ('last_notify_time', ?)
+		`INSERT INTO settings (key, value) VALUES ('last_notify_time', ?)
 		 ON CONFLICT(key) DO UPDATE SET value = ?`, val, val,
 	); err != nil {
 		log.Printf("engage: PutLastNotificationTime: %v", err)
@@ -247,7 +247,7 @@ func (t *Tracker) PutLastNotificationTime(tm time.Time) {
 
 func (t *Tracker) GetLastNotificationTime() (time.Time, bool) {
 	var val string
-	err := t.db.QueryRow(`SELECT value FROM daemon_state WHERE key = 'last_notify_time'`).Scan(&val)
+	err := t.db.QueryRow(`SELECT value FROM settings WHERE key = 'last_notify_time'`).Scan(&val)
 	if err != nil || val == "" {
 		return time.Time{}, false
 	}
