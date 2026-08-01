@@ -45,22 +45,6 @@ func TestOpenInvalidPath(t *testing.T) {
 	}
 }
 
-func TestMigrationVersion(t *testing.T) {
-	db, err := Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer db.Close()
-
-	var version int
-	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
-		t.Fatalf("query schema_version: %v", err)
-	}
-	if version != 2 {
-		t.Fatalf("expected schema version 2, got %d", version)
-	}
-}
-
 func TestReopenIdempotent(t *testing.T) {
 	path := t.TempDir() + "/test.db"
 	db, err := Open(path)
@@ -74,4 +58,33 @@ func TestReopenIdempotent(t *testing.T) {
 		t.Fatalf("second Open: %v", err)
 	}
 	db.Close()
+}
+
+func TestSchemaTablesCreated(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	tables := map[string]bool{
+		"learning_items":    false,
+		"review_events":     false,
+		"exposures":         false,
+		"engagement":        false,
+		"settings":          false,
+		"installed_datasets": false,
+	}
+	for name := range tables {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&count); err != nil {
+			t.Fatalf("query %s: %v", name, err)
+		}
+		tables[name] = count == 1
+	}
+	for name, found := range tables {
+		if !found {
+			t.Errorf("table %s not created", name)
+		}
+	}
 }

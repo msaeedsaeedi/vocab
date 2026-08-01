@@ -7,14 +7,11 @@ import (
 )
 
 type Config struct {
-	AutoStart           bool `json:"auto_start"`
-	AutoDownloadUpdates bool `json:"auto_download_updates"`
+	AutoStart bool `json:"auto_start"`
 }
 
 func Default() *Config {
-	return &Config{
-		AutoDownloadUpdates: true,
-	}
+	return &Config{}
 }
 
 type Manager struct {
@@ -59,8 +56,4 @@ func (m *Manager) Save() error {
 
 func (m *Manager) SetAutoStart(v bool) {
 	m.cfg.AutoStart = v
-}
-
-func (m *Manager) SetAutoDownloadUpdates(v bool) {
-	m.cfg.AutoDownloadUpdates = v
 }

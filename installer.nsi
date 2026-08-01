@@ -12,9 +12,7 @@ Section "Install"
   File "icon.ico"
   File "README.md"
   File "LICENSE"
-!ifdef OFFLINE
   File /r "lexicon"
-!endif
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 

@@ -61,14 +61,10 @@ jobs:
           test -n "$BUNDLE_DIR"
           mv "$BUNDLE_DIR" dist/installer/lexicon
           cd dist/installer
-          sed "s/{{.Version}}/$TAG/g; s/{{.Name}}/Vocab-$TAG-windows-amd64-online-setup/g; s/{{.Binary}}/vocab.exe/g" \
-            ../../installer.nsi > online-installer.nsi
-          makensis online-installer.nsi
-          sed "s/{{.Version}}/$TAG/g; s/{{.Name}}/Vocab-$TAG-windows-amd64-offline-setup/g; s/{{.Binary}}/vocab.exe/g" \
-            ../../installer.nsi > offline-installer.nsi
-          makensis -DOFFLINE offline-installer.nsi
-          mv "Vocab-$TAG-windows-amd64-online-setup.exe" "../Vocab-$TAG-windows-amd64-online-setup.exe"
-          mv "Vocab-$TAG-windows-amd64-offline-setup.exe" "../Vocab-$TAG-windows-amd64-offline-setup.exe"
+          sed "s/{{.Version}}/$TAG/g; s/{{.Name}}/Vocab-$TAG-windows-amd64-setup/g" \
+            ../../installer.nsi > installer.nsi
+          makensis installer.nsi
+          mv "Vocab-$TAG-windows-amd64-setup.exe" "../Vocab-$TAG-windows-amd64-setup.exe"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

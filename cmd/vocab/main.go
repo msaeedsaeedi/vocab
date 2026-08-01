@@ -13,14 +13,12 @@ import (
 	"time"
 
 	"github.com/msaeedsaeedi/vocab/internal/autostart"
-	"github.com/msaeedsaeedi/vocab/internal/config"
 	"github.com/msaeedsaeedi/vocab/internal/database"
 	"github.com/msaeedsaeedi/vocab/internal/dataset"
 	"github.com/msaeedsaeedi/vocab/internal/engage"
 	"github.com/msaeedsaeedi/vocab/internal/lexicon"
 	"github.com/msaeedsaeedi/vocab/internal/notify"
 	"github.com/msaeedsaeedi/vocab/internal/scheduler"
-	"github.com/msaeedsaeedi/vocab/internal/updater"
 	"github.com/msaeedsaeedi/vocab/internal/wallpaper"
 	"github.com/msaeedsaeedi/vocab/internal/word"
 )
@@ -43,8 +41,6 @@ func main() {
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
 	preview := flag.Bool("preview", false, "Generate wallpaper preview to preview.jpg without setting it")
 	showVersion := flag.Bool("version", false, "Print version and exit")
-	checkUpdate := flag.Bool("check-update", false, "Check for update and print result")
-	installUpdate := flag.Bool("install-update", false, "Install cached update if available")
 	flag.Parse()
 
 	if *showVersion {
@@ -84,9 +80,6 @@ func main() {
 	db := openDB(*resetDB)
 	defer db.Close()
 
-	cfg := openConfig()
-	up := updater.New(cfg, dataDir(), version, "msaeedsaeedi", "vocab")
-
 	if *lexiconBundle != "" {
 		ds, err := dataset.Install(db, *lexiconBundle, filepath.Join(dataDir(), "datasets"))
 		if err != nil {
@@ -101,16 +94,6 @@ func main() {
 		return
 	}
 
-	if *checkUpdate {
-		doCheckUpdate(ctx, up)
-		return
-	}
-
-	if *installUpdate {
-		doInstallUpdate(up)
-		return
-	}
-
 	if *reviewID > 0 {
 		if err := handleReviewCommand(db, *reviewID, *knewIt); err != nil {
 			log.Fatalf("review: %v", err)
@@ -122,9 +105,9 @@ func main() {
 		enableAutostart()
 	}
 
-	ds := openLexicon(ctx, db)
+	ds := openLexicon(db)
 	defer ds.Close()
-	runDaemon(ctx, db, ds, cfg, up)
+	runDaemon(ctx, db, ds)
 }
 
 func handleReviewCommand(db *database.DB, id int64, knew bool) error {
@@ -192,21 +175,11 @@ func openDB(reset bool) *database.DB {
 	return db
 }
 
-func openConfig() *config.Manager {
-	m, err := config.NewManager(dataDir())
-	if err != nil {
-		log.Printf("config: %v (using defaults)", err)
-		return nil
-	}
-	return m
-}
-
-func openLexicon(ctx context.Context, db *database.DB) *lexicon.Dataset {
+func openLexicon(db *database.DB) *lexicon.Dataset {
 	ds, err := dataset.Active(db)
 	if err == nil {
 		return ds
 	}
-	// The offline installer places the immutable bundle beside the executable.
 	exe, exeErr := os.Executable()
 	if exeErr == nil {
 		bundle := filepath.Join(filepath.Dir(exe), "lexicon")
@@ -218,13 +191,7 @@ func openLexicon(ctx context.Context, db *database.DB) *lexicon.Dataset {
 			log.Printf("offline Lexicon bundle at %s failed to activate: %v", bundle, installErr)
 		}
 	}
-	log.Print("no offline Lexicon bundle found; downloading the latest compatible Lexicon release")
-	ds, downloadErr := dataset.DownloadAndInstall(ctx, db, filepath.Join(dataDir(), "datasets"))
-	if downloadErr == nil {
-		return ds
-	}
-	err = downloadErr
-	log.Fatalf("Lexicon dataset is required before learning can begin: install an offline bundle or run -install-lexicon <bundle-dir> (%v)", err)
+	log.Fatalf("Lexicon dataset is required before learning can begin: run -install-lexicon <bundle-dir>")
 	return nil
 }
 
@@ -264,42 +231,11 @@ func doRegister() {
 	log.Print("notification app registered")
 }
 
-func doCheckUpdate(ctx context.Context, up *updater.Updater) {
-	res, err := up.CheckAndDownload(ctx)
-	if err != nil {
-		log.Fatalf("update check failed: %v", err)
-	}
-	if !res.HasUpdate {
-		fmt.Println("No update available")
-		return
-	}
-	fmt.Printf("Update available: %s\n", res.LatestVersion)
-	if res.InstallerPath != "" {
-		fmt.Printf("Installer cached at: %s\n", res.InstallerPath)
-	}
-}
-
-func doInstallUpdate(up *updater.Updater) {
-	for _, tag := range []string{"v" + version, ""} {
-		if path, ok := up.HasCachedInstaller(tag); ok {
-			log.Printf("installing cached update: %s", path)
-			if err := up.Install(path); err != nil {
-				log.Fatalf("install: %v", err)
-			}
-			return
-		}
-	}
-	log.Print("no cached installer found; run --check-update first")
-}
-
-func runDaemon(ctx context.Context, db *database.DB, ds *lexicon.Dataset, cfg *config.Manager, up *updater.Updater) {
+func runDaemon(ctx context.Context, db *database.DB, ds *lexicon.Dataset) {
 	log.Print("daemon started")
 	tr := engage.New(db)
 
 	resumeAmbientSession(ctx, db, ds, tr)
-
-	lastUpdateCheck := time.Time{}
-	lastDatasetCheck := time.Time{}
 
 	for {
 		select {
@@ -307,24 +243,6 @@ func runDaemon(ctx context.Context, db *database.DB, ds *lexicon.Dataset, cfg *c
 			log.Print("shutting down daemon")
 			return
 		default:
-		}
-
-		if time.Since(lastUpdateCheck) > 24*time.Hour {
-			checkForUpdate(ctx, up)
-			lastUpdateCheck = time.Now()
-		}
-		if time.Since(lastDatasetCheck) > 24*time.Hour {
-			updated, changed, err := dataset.CheckAndInstallUpdate(ctx, db, filepath.Join(dataDir(), "datasets"))
-			if err != nil {
-				log.Printf("Lexicon update check: %v", err)
-			} else if changed {
-				log.Printf("Lexicon dataset updated to %s", updated.DatasetVersion)
-				ds.Close()
-				ds = updated
-			} else {
-				log.Print("Lexicon update check: no newer compatible release")
-			}
-			lastDatasetCheck = time.Now()
 		}
 
 		now := time.Now()
@@ -418,22 +336,6 @@ func runDaemon(ctx context.Context, db *database.DB, ds *lexicon.Dataset, cfg *c
 				return
 			}
 		}
-	}
-}
-
-func checkForUpdate(ctx context.Context, up *updater.Updater) {
-	res, err := up.CheckAndDownload(ctx)
-	if err != nil {
-		log.Printf("update check: %v", err)
-		return
-	}
-	if !res.HasUpdate {
-		log.Print("update check: no update available")
-		return
-	}
-	log.Printf("update available: %s", res.LatestVersion)
-	if res.InstallerPath != "" {
-		log.Printf("update downloaded, will install on next `--install-update`")
 	}
 }
 
@@ -603,8 +505,6 @@ func introduceItems(db *database.DB, ds *lexicon.Dataset, count int) error {
 			known[item.LexemeID] = true
 		}
 	}
-	// Fetch more IDs than necessary so unavailable or already-learned lexical
-	// records do not prevent the daily introduction target from being reached.
 	ids, err := ds.DisplayableLexemeIDs(len(known) + count + 32)
 	if err != nil {
 		return err
