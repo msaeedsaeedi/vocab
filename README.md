@@ -31,14 +31,13 @@ Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-
 
 ### Windows Installer (recommended)
 
-Download either installer from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases):
+Download the installer from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases):
 
-- `Vocab-*-windows-amd64-offline-setup.exe` includes a verified Lexicon bundle.
-- `Vocab-*-windows-amd64-online-setup.exe` downloads and verifies the latest compatible immutable bundle on first run.
+- `Vocab-*-windows-amd64-setup.exe` bundles a verified Lexicon dataset, so no download is needed.
 
-Both installers:
+The installer:
 
-- Installs to `Program Files\Vocab`
+- Installs to `Program Files\Vocab` (binary + bundled Lexicon)
 - Registers Vocab to start automatically on login
 - Adds an entry in Add/Remove Programs for clean uninstall
 
@@ -50,7 +49,11 @@ go install github.com/msaeedsaeedi/vocab/cmd/vocab@latest
 
 ### Pre-built binaries
 
-Download `vocab_*_windows_amd64.zip` from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases) and extract `vocab.exe`.
+Download `vocab_*_windows_amd64.zip` from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases) and extract `vocab.exe`. This archive does not include a Lexicon bundle, so install one with:
+
+```powershell
+vocab.exe -install-lexicon <path-to-lexicon-bundle>
+```
 
 ### Build from source
 
@@ -70,7 +73,7 @@ vocab.exe -daemon
 vocab.exe -daemon -dev
 ```
 
-Once running, Vocab activates an offline Lexicon bundle when included by the installer, or downloads and verifies the latest compatible immutable release before learning begins.
+Once running, Vocab activates the Lexicon bundle that ships alongside the binary, then verifies it before learning begins.
 
 ## Usage
 
@@ -126,9 +129,8 @@ Data is stored at `%APPDATA%/vocab/`:
 
 | File | Purpose |
 |------|---------|
-| `vocab.db` | SQLite database with learner items, scheduling, reviews, engagement, settings, and dataset metadata |
+| `vocab.db` | SQLite database with learner items, scheduling, reviews, engagement, and dataset metadata |
 | `datasets/` | Verified read-only Lexicon bundles; the active bundle is recorded in `vocab.db` |
-| `config.json` | User configuration (active window, words per day) |
 | `wallpaper.jpg` | Current word rendered as wallpaper |
 
 Canonical lexical content is never copied into `vocab.db`. Vocab queries `lexemes`, `senses`, `definitions`, and `examples` from the active Lexicon SQLite file in read-only mode.
@@ -146,7 +148,7 @@ make clean          # Remove binaries
 
 ## Acknowledgments
 
-- [fogleman/gg](https://github.com/fogleman/gg) — 2D rendering for wallpaper generation
+- [macawls/ogre](https://github.com/macawls/ogre) — HTML/CSS rendering for wallpaper generation
 - [modernc.org/sqlite](https://modernc.org/sqlite) — Pure-Go SQLite driver
 - Fonts: [Fraunces](https://github.com/undercasetype/Fraunces), [Inter](https://rsms.me/inter/), [JetBrains Mono](https://www.jetbrains.com/lp/mono/)
 
