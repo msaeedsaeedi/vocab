@@ -69,6 +69,8 @@ jobs:
           makensis /DOFFLINE offline-installer.nsi
           mv "Vocab-$TAG-windows-amd64-online-setup.exe" "../Vocab-$TAG-windows-amd64-online-setup.exe"
           mv "Vocab-$TAG-windows-amd64-offline-setup.exe" "../Vocab-$TAG-windows-amd64-offline-setup.exe"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installer to release
         run: |
