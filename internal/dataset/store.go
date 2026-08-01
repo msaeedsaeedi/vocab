@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -106,10 +107,12 @@ func InstallBundled(db *database.DB, root, datasetsDir string) (*lexicon.Dataset
 	for _, candidate := range candidates {
 		sqlitePath, err := lexicon.VerifyBundle(candidate)
 		if err != nil {
+			log.Printf("InstallBundled: VerifyBundle(%s): %v", candidate, err)
 			continue
 		}
 		ds, err := lexicon.Open(sqlitePath)
 		if err != nil {
+			log.Printf("InstallBundled: Open(%s): %v", sqlitePath, err)
 			continue
 		}
 		version := ds.DatasetVersion

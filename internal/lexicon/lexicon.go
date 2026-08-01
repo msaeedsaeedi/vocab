@@ -8,9 +8,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -49,40 +51,90 @@ type Entry struct {
 
 // Open validates and opens path in SQLite read-only/query-only mode.
 func Open(path string) (*Dataset, error) {
+	log.Printf("lexicon.Open: opening %q", path)
+
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve lexicon path: %w", err)
 	}
-	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(abs), RawQuery: "mode=ro"}
-	db, err := sql.Open("sqlite", u.String())
+
+	p := filepath.ToSlash(abs)
+
+	// SQLite URI filenames represent an absolute Windows drive path as
+	// /C:/path/to/database.
+	if runtime.GOOS == "windows" &&
+		len(p) >= 2 &&
+		p[1] == ':' {
+		p = "/" + p
+	}
+
+	u := &url.URL{
+		Scheme: "file",
+		Path:   p,
+	}
+
+	q := u.Query()
+	q.Set("mode", "ro")
+	q.Set("immutable", "1")
+	u.RawQuery = q.Encode()
+
+	dsn := u.String()
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open lexicon: %w", err)
 	}
+
 	db.SetMaxOpenConns(1)
+
 	closeOnError := func(err error) (*Dataset, error) {
-		db.Close()
+		log.Printf("lexicon.Open: closing connection after error: %v", err)
+		_ = db.Close()
 		return nil, err
 	}
+
 	if err := db.Ping(); err != nil {
 		return closeOnError(fmt.Errorf("ping lexicon: %w", err))
 	}
-	if _, err := db.Exec("PRAGMA foreign_keys = ON; PRAGMA query_only = ON"); err != nil {
-		return closeOnError(fmt.Errorf("configure read-only lexicon: %w", err))
+
+	if _, err := db.Exec(
+		"PRAGMA foreign_keys = ON; PRAGMA query_only = ON",
+	); err != nil {
+		return closeOnError(
+			fmt.Errorf("configure read-only lexicon: %w", err),
+		)
 	}
+
 	if err := validateSurface(db); err != nil {
 		return closeOnError(err)
 	}
+
 	metadata, err := readMetadata(db)
 	if err != nil {
 		return closeOnError(err)
 	}
+
 	if metadata["schema_version"] != SupportedSchemaVersion {
-		return closeOnError(fmt.Errorf("unsupported Lexicon schema %q (want %q)", metadata["schema_version"], SupportedSchemaVersion))
+		err := fmt.Errorf(
+			"unsupported Lexicon schema %q (want %q)",
+			metadata["schema_version"],
+			SupportedSchemaVersion,
+		)
+		return closeOnError(err)
 	}
+
 	if _, err := ParseDatasetVersion(metadata["dataset_version"]); err != nil {
 		return closeOnError(err)
 	}
-	return &Dataset{DB: db, Path: abs, DatasetVersion: metadata["dataset_version"], SchemaVersion: metadata["schema_version"]}, nil
+
+	log.Printf("lexicon.Open: opened %q", path)
+
+	return &Dataset{
+		DB:             db,
+		Path:           abs,
+		DatasetVersion: metadata["dataset_version"],
+		SchemaVersion:  metadata["schema_version"],
+	}, nil
 }
 
 // ParseDatasetVersion validates the manifest's unprefixed SemVer version and

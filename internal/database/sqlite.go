@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS daemon_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS installed_datasets (
     dataset_version TEXT PRIMARY KEY,
     schema_version  TEXT NOT NULL,

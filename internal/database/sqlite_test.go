@@ -68,11 +68,12 @@ func TestSchemaTablesCreated(t *testing.T) {
 	defer db.Close()
 
 	tables := map[string]bool{
-		"learning_items":    false,
-		"review_events":     false,
-		"exposures":         false,
-		"engagement":        false,
-		"settings":          false,
+		"learning_items":     false,
+		"review_events":      false,
+		"exposures":          false,
+		"engagement":         false,
+		"settings":           false,
+		"daemon_state":       false,
 		"installed_datasets": false,
 	}
 	for name := range tables {
