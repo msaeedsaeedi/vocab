@@ -158,9 +158,11 @@ func windowProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	switch message {
 	case wmTray:
 		// With NIM_SETVERSION at NOTIFYICON_VERSION_4 (Vista+), right-clicks
-		// arrive as WM_CONTEXTMENU, not WM_RBUTTONUP. Handle both so the menu
-		// works even when the version negotiation fails.
-		if lparam == wmRButtonUp || lparam == wmLButtonUp || lparam == wmContextMenu {
+		// arrive as WM_CONTEXTMENU, not WM_RBUTTONUP. In that protocol lParam's
+		// high word contains the icon ID, so compare only its low word. Handle
+		// both forms so the menu also works if the version negotiation fails.
+		event := uint32(uint16(lparam))
+		if event == wmRButtonUp || event == wmLButtonUp || event == wmContextMenu {
 			showMenu(windows.Handle(hwnd))
 		}
 	case wmCommand:
