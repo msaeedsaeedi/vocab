@@ -25,8 +25,9 @@ Section "Install"
     "VocabDaemon" '"$INSTDIR\${BINARY}" -daemon'
 
   ; Start Menu entries so Vocab can be relaunched after Quit from the tray.
+  ; -daemon is required: without it the daemon runs but the tray is not added.
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
-  CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${BINARY}"
+  CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${BINARY}" "-daemon"
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk" "$INSTDIR\uninstall.exe"
 
   Exec '"$INSTDIR\${BINARY}" -daemon'

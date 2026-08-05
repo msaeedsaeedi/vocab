@@ -25,6 +25,7 @@ type Actions struct {
 const (
 	wmDestroy         = 0x0002
 	wmCommand         = 0x0111
+	wmContextMenu     = 0x007B
 	wmUser            = 0x0400
 	wmTray            = wmUser + 1
 	wmRButtonUp       = 0x0205
@@ -66,6 +67,7 @@ var (
 	procAppendMenu          = user32.NewProc("AppendMenuW")
 	procTrackPopupMenu      = user32.NewProc("TrackPopupMenu")
 	procDestroyMenu         = user32.NewProc("DestroyMenu")
+	procPostMessage         = user32.NewProc("PostMessageW")
 	procLoadImage           = user32.NewProc("LoadImageW")
 	procDestroyWindow       = user32.NewProc("DestroyWindow")
 	procShellNotifyIcon     = shell32.NewProc("Shell_NotifyIconW")
@@ -155,7 +157,10 @@ func run() error {
 func windowProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	switch message {
 	case wmTray:
-		if lparam == wmRButtonUp || lparam == wmLButtonUp {
+		// With NIM_SETVERSION at NOTIFYICON_VERSION_4 (Vista+), right-clicks
+		// arrive as WM_CONTEXTMENU, not WM_RBUTTONUP. Handle both so the menu
+		// works even when the version negotiation fails.
+		if lparam == wmRButtonUp || lparam == wmLButtonUp || lparam == wmContextMenu {
 			showMenu(windows.Handle(hwnd))
 		}
 	case wmCommand:
@@ -246,4 +251,7 @@ func showMenu(hwnd windows.Handle) {
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
 	procSetForegroundWindow.Call(uintptr(hwnd))
 	procTrackPopupMenu.Call(menu, tpmRightButton, uintptr(p.X), uintptr(p.Y), 0, uintptr(hwnd), 0)
+	// Posting WM_NULL lets the menu's modal loop exit cleanly when the user
+	// clicks elsewhere, so the tray stays responsive on the first attempt.
+	procPostMessage.Call(uintptr(hwnd), 0, 0, 0)
 }
