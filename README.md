@@ -23,7 +23,7 @@ Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-
 - **Two-phase learning** — Words first appear on your wallpaper for passive absorption, then trigger a notification to test recall.
 - **FSRS + BKT scheduler** — Combines Free Spaced Repetition Scheduler with Bayesian Knowledge Tracing for optimal review timing.
 - **Adaptive pacing** — Automatically adjusts daily word count and active hours based on your engagement patterns.
-- **Versioned Lexicon data** — Uses a verified, read-only Lexicon SQLite bundle while keeping learner state local.
+- **Curated word list** — Ships a built-in curated seed of common words embedded in the binary; no external data or downloads.
 - **Autostart support** — Registers itself in the Windows Registry to launch on login.
 - **Dev mode** — 60× faster timeouts for testing (`-dev` flag).
 
@@ -33,11 +33,11 @@ Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-
 
 Download the installer from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases):
 
-- `Vocab-*-windows-amd64-setup.exe` bundles a verified Lexicon dataset, so no download is needed.
+- `Vocab-*-windows-amd64-setup.exe` is fully self-contained — the curated word list is embedded in the binary, so no download is needed.
 
 The installer:
 
-- Installs to `Program Files\Vocab` (binary + bundled Lexicon)
+- Installs to `Program Files\Vocab` (single binary)
 - Registers Vocab to start automatically on login
 - Adds an entry in Add/Remove Programs for clean uninstall
 
@@ -49,11 +49,7 @@ go install github.com/msaeedsaeedi/vocab/cmd/vocab@latest
 
 ### Pre-built binaries
 
-Download `vocab_*_windows_amd64.zip` from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases) and extract `vocab.exe`. This archive does not include a Lexicon bundle, so install one with:
-
-```powershell
-vocab.exe -install-lexicon <path-to-lexicon-bundle>
-```
+Download `vocab_*_windows_amd64.zip` from the [Releases page](https://github.com/msaeedsaeedi/vocab/releases) and extract `vocab.exe`. The word list is embedded in the binary — no additional setup required.
 
 ### Build from source
 
@@ -73,7 +69,7 @@ vocab.exe -daemon
 vocab.exe -daemon -dev
 ```
 
-Once running, Vocab activates the Lexicon bundle that ships alongside the binary, then verifies it before learning begins.
+Once running, Vocab schedules words from the built-in curated seed and begins learning immediately.
 
 ## Usage
 
@@ -82,7 +78,6 @@ Once running, Vocab activates the Lexicon bundle that ships alongside the binary
 | `-daemon` | Run as a background daemon |
 | `-dev` | Dev mode — 60× faster timeouts |
 | `-reset-db` | Delete Vocab learner state and start fresh |
-| `-install-lexicon <dir>` | Verify, install, and activate a Lexicon release bundle |
 | `-review <id>` | Record feedback for word by ID |
 | `-knew` | Used with `-review` to mark word as known |
 | `-preview` | Generate a wallpaper preview image |
@@ -129,11 +124,10 @@ Data is stored at `%APPDATA%/vocab/`:
 
 | File | Purpose |
 |------|---------|
-| `vocab.db` | SQLite database with learner items, scheduling, reviews, engagement, and dataset metadata |
-| `datasets/` | Verified read-only Lexicon bundles; the active bundle is recorded in `vocab.db` |
+| `vocab.db` | SQLite database with learner items, scheduling, reviews, and engagement |
 | `wallpaper.jpg` | Current word rendered as wallpaper |
 
-Canonical lexical content is never copied into `vocab.db`. Vocab queries `lexemes`, `senses`, `definitions`, and `examples` from the active Lexicon SQLite file in read-only mode.
+The curated word list lives in `internal/words/seed.jsonl` and is embedded into the binary at build time. Vocab stores only learner state (which words are scheduled, review history, engagement) in `vocab.db` — canonical word content comes from the embedded seed.
 
 ## Development
 
