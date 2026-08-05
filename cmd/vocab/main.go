@@ -359,10 +359,8 @@ func phaseRecall(ctx context.Context, db *database.DB, tr *engage.Tracker, w wor
 	tr.PutCurrentWord(w.ID, "recall")
 
 	if err := notify.Send(notify.Word{
-		ID:         w.ID,
-		Text:       w.Text,
-		Definition: w.Definition,
-		Example:    w.Example,
+		ID:   w.ID,
+		Text: w.Text,
 	}); err != nil {
 		log.Printf("notify ERROR: %v", err)
 		return err

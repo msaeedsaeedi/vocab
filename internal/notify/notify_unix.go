@@ -24,24 +24,20 @@ func Send(w Word) error {
 }
 
 func sendLinux(w Word) error {
-	body := w.Definition
-	if w.Example != "" {
-		body += "\n\"" + w.Example + "\""
-	}
+	body := fmt.Sprintf("Do you remember the meaning of %q?", w.Text)
 	return exec.Command("notify-send",
 		"-a", "Vocab",
 		"-i", "dialog-information",
-		w.Text,
+		"Vocab",
 		body,
 	).Run()
 }
 
 func sendDarwin(w Word) error {
 	script := fmt.Sprintf(
-		`display notification %q with title %q subtitle %q`,
-		w.Definition+" - \""+w.Example+"\"",
+		`display notification %q with title %q`,
+		"Do you remember the meaning of \""+w.Text+"\"?",
 		"Vocab",
-		w.Text,
 	)
 	return exec.Command("osascript", "-e", script).Run()
 }

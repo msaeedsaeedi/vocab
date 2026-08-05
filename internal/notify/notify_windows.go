@@ -20,8 +20,8 @@ func RegisterApp(exePath string) error {
 func Send(w Word) error {
 	t := toast.Notification{
 		AppID: "Vocab",
-		Title: w.Text,
-		Body:  w.Definition,
+		Title: "Vocab",
+		Body:  "Do you remember the meaning of \"" + w.Text + "\"?",
 		Actions: []toast.Action{
 			{
 				Type:      toast.Foreground,
@@ -34,9 +34,6 @@ func Send(w Word) error {
 				Arguments: fmt.Sprintf("--review %d --knew=false", w.ID),
 			},
 		},
-	}
-	if w.Example != "" {
-		t.Body += "\n\"" + w.Example + "\""
 	}
 	return t.Push()
 }
