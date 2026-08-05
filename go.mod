@@ -5,15 +5,14 @@ go 1.25.0
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
 	github.com/macawls/ogre v1.5.1
-	golang.org/x/mod v0.38.0
-	golang.org/x/sys v0.44.0
+	golang.org/x/sys v0.46.0
 	modernc.org/sqlite v1.37.1
 )
 
 require (
 	github.com/go-text/typesetting v0.3.4 // indirect
-	golang.org/x/net v0.53.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 )
 
 require (
@@ -25,6 +24,8 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/image v0.40.0 // indirect
+	golang.org/x/mod v0.38.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	modernc.org/libc v1.65.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
