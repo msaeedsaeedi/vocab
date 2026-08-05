@@ -61,14 +61,15 @@ func linuxEnabled(name string) bool {
 
 func setWindows(name, execPath string, enabled bool) error {
 	if enabled {
+		command := `"` + execPath + `" -daemon`
 		return exec.Command("reg", "add",
 			`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
-			"/v", name+".vocab", "/t", "REG_SZ", "/d", execPath, "/f",
+			"/v", name, "/t", "REG_SZ", "/d", command, "/f",
 		).Run()
 	}
 	return exec.Command("reg", "delete",
 		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
-		"/v", name+".vocab", "/f",
+		"/v", name, "/f",
 	).Run()
 }
 

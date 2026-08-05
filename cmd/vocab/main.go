@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/msaeedsaeedi/vocab/internal/engage"
 	"github.com/msaeedsaeedi/vocab/internal/notify"
 	"github.com/msaeedsaeedi/vocab/internal/scheduler"
+	"github.com/msaeedsaeedi/vocab/internal/tray"
 	"github.com/msaeedsaeedi/vocab/internal/wallpaper"
 	"github.com/msaeedsaeedi/vocab/internal/word"
 	"github.com/msaeedsaeedi/vocab/internal/words"
@@ -25,10 +27,16 @@ import (
 var (
 	devFactor = 1.0
 
+	learnNowRequests = make(chan struct{}, 1)
+	learnNowPending  atomic.Bool
+	quitPending      atomic.Bool
+
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
 )
+
+var errDaemonStop = fmt.Errorf("daemon stop requested")
 
 func main() {
 	resetDB := flag.Bool("reset-db", false, "Delete Vocab learner state and start fresh")
@@ -38,6 +46,8 @@ func main() {
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
 	preview := flag.Bool("preview", false, "Generate wallpaper preview to preview.jpg without setting it")
+	learnNow := flag.Bool("learn-now", false, "Ask a running daemon to start the next learning session")
+	quit := flag.Bool("quit", false, "Ask a running daemon to shut down cleanly")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 
@@ -61,16 +71,30 @@ func main() {
 		return
 	}
 
+	if *learnNow {
+		if err := sendDaemonCommand("learn-now"); err != nil {
+			log.Fatalf("send daemon command: %v", err)
+		}
+		return
+	}
+	if *quit {
+		if err := sendDaemonCommand("quit"); err != nil {
+			log.Fatalf("send daemon command: %v", err)
+		}
+		return
+	}
+
 	if *dev {
 		devFactor = 1.0 / 60.0
 		log.Print("=== DEV MODE: timeouts divided by 60 ===")
 	}
 
-	logFile := openLog()
+	logFile, logPath := openLog()
 	defer logFile.Close()
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Printf("=== vocab started (pid=%d, os=%s, version=%s) ===", os.Getpid(), runtime.GOOS, version)
+	log.Printf("log file: %s", logPath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -92,6 +116,8 @@ func main() {
 
 	if *daemon {
 		enableAutostart()
+		registerNotifications()
+		go tray.Run(ctx, tray.Actions{LearnNow: requestLearnNow, Quit: stop})
 	}
 
 	wordList := words.LoadSeed()
@@ -120,13 +146,24 @@ func handleReviewCommand(db *database.DB, id int64, knew bool) error {
 	return nil
 }
 
-func openLog() *os.File {
-	path := filepath.Join(os.TempDir(), "vocab.log")
+func openLog() (*os.File, string) {
+	dir := filepath.Join(dataDir(), "logs")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Fatalf("cannot create log directory %s: %v", dir, err)
+	}
+	path := filepath.Join(dir, "vocab.log")
+	if info, err := os.Stat(path); err == nil && info.Size() >= 2*1024*1024 {
+		rotated := filepath.Join(dir, "vocab.1.log")
+		_ = os.Remove(rotated)
+		if err := os.Rename(path, rotated); err != nil {
+			log.Printf("cannot rotate log: %v", err)
+		}
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatalf("cannot open log %s: %v", path, err)
 	}
-	return f
+	return f, path
 }
 
 func dataDir() string {
@@ -165,14 +202,86 @@ func openDB(reset bool) *database.DB {
 
 func devDuration(d time.Duration) time.Duration { return time.Duration(float64(d) * devFactor) }
 
+// sleepDevContext sleeps for d (scaled by dev mode) while keeping the daemon
+// responsive to local commands. It returns true when the full duration elapsed,
+// and false when a learn-now/quit request interrupted the sleep or the context
+// was cancelled.
 func sleepDevContext(ctx context.Context, d time.Duration) bool {
 	scaled := time.Duration(float64(d) * devFactor)
+	timer := time.NewTimer(scaled)
+	defer timer.Stop()
+	poll := time.NewTicker(time.Second)
+	defer poll.Stop()
+	for {
+		select {
+		case <-timer.C:
+			return true
+		case <-ctx.Done():
+			return false
+		case <-learnNowRequests:
+			return false
+		case <-poll.C:
+			drainDaemonCommand()
+			if quitPending.Load() || learnNowPending.Load() {
+				return false
+			}
+		}
+	}
+}
+
+func daemonCommandPath() string { return filepath.Join(dataDir(), "daemon-command") }
+
+func sendDaemonCommand(command string) error {
+	path := daemonCommandPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, []byte(command), 0600); err != nil {
+		return err
+	}
+	return os.Rename(temporary, path)
+}
+
+func drainDaemonCommand() {
+	path := daemonCommandPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		log.Printf("daemon command: remove mailbox: %v", err)
+	}
+	switch string(data) {
+	case "learn-now":
+		requestLearnNow()
+	case "quit":
+		quitPending.Store(true)
+		log.Print("quit requested by local command")
+	default:
+		log.Printf("daemon command: ignored unknown command %q", string(data))
+	}
+}
+
+func requestLearnNow() {
+	learnNowPending.Store(true)
 	select {
-	case <-time.After(scaled):
-		return true
-	case <-ctx.Done():
+	case learnNowRequests <- struct{}{}:
+	default:
+	}
+	log.Print("learn now requested")
+}
+
+func consumeLearnNowRequest() bool {
+	if !learnNowPending.Swap(false) {
 		return false
 	}
+	select {
+	case <-learnNowRequests:
+	default:
+	}
+	log.Print("learn now honored")
+	return true
 }
 
 func enableAutostart() {
@@ -181,7 +290,7 @@ func enableAutostart() {
 		log.Printf("autostart: resolve executable: %v", err)
 		return
 	}
-	if err := autostart.SetEnabled("vocab", execPath, true); err != nil {
+	if err := autostart.SetEnabled("VocabDaemon", execPath, true); err != nil {
 		log.Printf("autostart: enable: %v", err)
 	} else {
 		log.Print("autostart enabled")
@@ -199,13 +308,38 @@ func doRegister() {
 	log.Print("notification app registered")
 }
 
+func registerNotifications() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("notification registration: resolve executable: %v", err)
+		return
+	}
+	if err := notify.RegisterApp(exe); err != nil {
+		log.Printf("notification registration: %v", err)
+		return
+	}
+	log.Print("notification app registered")
+}
+
 func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
+	// A command left over from a previous invocation is stale: the installer's
+	// pre-replace "quit" must not stop the daemon that starts after it.
+	_ = os.Remove(daemonCommandPath())
+
 	log.Print("daemon started")
 	tr := engage.New(db)
 
 	resumeAmbientSession(ctx, db, wordList, tr)
 
 	for {
+		drainDaemonCommand()
+		if quitPending.Load() {
+			log.Print("shutting down daemon on local command")
+			return
+		}
 		select {
 		case <-ctx.Done():
 			log.Print("shutting down daemon")
@@ -213,12 +347,13 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 		default:
 		}
 
+		forceNow := consumeLearnNowRequest()
 		now := time.Now()
 		dayStart, dayEnd := tr.ActiveWindow()
 
-		if now.Hour() < dayStart || now.Hour() >= dayEnd {
+		if !forceNow && (now.Hour() < dayStart || now.Hour() >= dayEnd) {
 			sleepUntilNextWindow(ctx, dayStart, dayEnd)
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || quitPending.Load() {
 				log.Print("shutting down daemon")
 				return
 			}
@@ -260,6 +395,9 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 			}
 			if err := presentWord(ctx, db, tr, *w); err != nil {
 				log.Printf("present word %d: %v", w.ID, err)
+				if quitPending.Load() || ctx.Err() != nil {
+					return
+				}
 			}
 
 			presented++
@@ -273,7 +411,7 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 				}
 				log.Printf("waiting %dm before next word", waitMins)
 				sleepDevContext(ctx, time.Duration(waitMins)*time.Minute)
-				if ctx.Err() != nil {
+				if ctx.Err() != nil || quitPending.Load() {
 					log.Print("shutting down daemon")
 					return
 				}
@@ -286,6 +424,9 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 		}
 
 		if presented == 0 {
+			if forceNow {
+				log.Print("learn now honored but no words are due right now")
+			}
 			nextDue := findNextDue(db)
 			if nextDue.IsZero() || nextDue.Before(time.Now()) {
 				log.Print("no words due, sleeping 30m")
@@ -299,7 +440,7 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 					sleepDevContext(ctx, dur+time.Minute)
 				}
 			}
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || quitPending.Load() {
 				log.Print("shutting down daemon")
 				return
 			}
@@ -345,6 +486,9 @@ func phraseExpose(ctx context.Context, db *database.DB, tr *engage.Tracker, w wo
 	absorptionTime := 30 * time.Minute
 	log.Printf("expose: absorption period %v", absorptionTime)
 	if !sleepDevContext(ctx, absorptionTime) {
+		if quitPending.Load() {
+			return errDaemonStop
+		}
 		return ctx.Err()
 	}
 
@@ -372,10 +516,13 @@ func phaseRecall(ctx context.Context, db *database.DB, tr *engage.Tracker, w wor
 }
 
 func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
-	log.Printf("waiting for review of word %d (polling 2m, timeout 2h)", w.ID)
+	log.Printf("waiting for review of word %d (polling 5s, timeout 2h)", w.ID)
 
 	deadline := time.Now().Add(devDuration(2 * time.Hour))
 	pollInterval := devDuration(2 * time.Minute)
+	if pollInterval > 5*time.Second {
+		pollInterval = 5 * time.Second
+	}
 
 	for {
 		select {
@@ -385,6 +532,15 @@ func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w w
 			return nil
 
 		case <-time.After(pollInterval):
+			drainDaemonCommand()
+			if quitPending.Load() {
+				log.Print("shutting down during review wait")
+				tr.ClearCurrentWord()
+				return errDaemonStop
+			}
+			if learnNowPending.Load() {
+				log.Printf("learn now queued; it will run after word %d resolves", w.ID)
+			}
 			current, err := word.GetWord(db, w.ID)
 			if err != nil {
 				log.Printf("review poll ERROR: %v", err)

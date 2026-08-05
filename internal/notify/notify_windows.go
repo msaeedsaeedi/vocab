@@ -13,7 +13,7 @@ func RegisterApp(exePath string) error {
 	return toast.SetAppData(toast.AppData{
 		AppID:         "Vocab",
 		ActivationExe: exePath,
-		IconPath:      filepath.Join(filepath.Dir(exePath), "icon.png"),
+		IconPath:      filepath.Join(filepath.Dir(exePath), "icon.ico"),
 	})
 }
 

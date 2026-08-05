@@ -24,6 +24,7 @@ Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-
 - **FSRS + BKT scheduler** — Combines Free Spaced Repetition Scheduler with Bayesian Knowledge Tracing for optimal review timing.
 - **Adaptive pacing** — Automatically adjusts daily word count and active hours based on your engagement patterns.
 - **Curated word list** — Ships a built-in curated seed of common words embedded in the binary; no external data or downloads.
+- **Tray controls** — **Learn now** starts the next session immediately; **Quit** shuts the daemon down cleanly.
 - **Autostart support** — Registers itself in the Windows Registry to launch on login.
 - **Dev mode** — 60× faster timeouts for testing (`-dev` flag).
 
@@ -39,7 +40,9 @@ The installer:
 
 - Installs to `Program Files\Vocab` (single binary)
 - Registers Vocab to start automatically on login
+- Adds a Start Menu entry so Vocab can be relaunched after quitting from the tray
 - Adds an entry in Add/Remove Programs for clean uninstall
+- Preserves learner data by default when uninstalling; it asks before removing `%APPDATA%\vocab`
 
 ### Go install
 
@@ -80,6 +83,8 @@ Once running, Vocab schedules words from the built-in curated seed and begins le
 | `-reset-db` | Delete Vocab learner state and start fresh |
 | `-review <id>` | Record feedback for word by ID |
 | `-knew` | Used with `-review` to mark word as known |
+| `-learn-now` | Ask a running daemon to start the next session now |
+| `-quit` | Ask a running daemon to shut down cleanly |
 | `-preview` | Generate a wallpaper preview image |
 | `-register` | Register app for Windows toast notifications |
 | `-version` | Print version and exit |
@@ -109,7 +114,9 @@ Vocab runs as a persistent daemon on your desktop, cycling through two phases fo
 
 1. **Expose phase (30 min)** — The word, definition, and example sentence are rendered as your desktop wallpaper. This passive exposure lets your brain subconsciously absorb the word.
 
-2. **Recall phase (up to 2 hr)** — A desktop notification asks you to recall the word's meaning. You respond via `vocab -review <id> -knew` or `vocab -review <id>` (forgot). If no response within the window, the word auto-lapses and is re-scheduled.
+2. **Recall phase (up to 2 hr)** — A desktop notification asks you to recall the word's meaning. You respond via the **Knew it** / **Didn't know** notification buttons (or `vocab -review <id> -knew` / `vocab -review <id>`). If no response within the window, the word auto-lapses and is re-scheduled.
+
+A tray icon offers **Learn now** to jump straight into the next session (even outside the active window) and **Quit** to stop the daemon. `-learn-now` and `-quit` on the command line do the same.
 
 Between sessions, an **adaptive engine** tracks your engagement and adjusts:
 - Words per day (fewer if you miss reviews)
@@ -122,10 +129,14 @@ The scheduler combines **FSRS** (spaced repetition with stability/difficulty) an
 
 Data is stored at `%APPDATA%/vocab/`:
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
 | `vocab.db` | SQLite database with learner items, scheduling, reviews, and engagement |
+| `logs/vocab.log` | Daemon log (rotated to `vocab.1.log` when it exceeds 2 MB) |
+| `daemon-command` | Local command mailbox for `-learn-now` / `-quit` |
 | `wallpaper.jpg` | Current word rendered as wallpaper |
+
+Schema migrations run automatically on startup; a recovery backup (`vocab.db.pre-migration-*.bak`) is kept before a migration and any failed database is preserved, so learner data is never destroyed.
 
 The curated word list lives in `internal/words/seed.jsonl` and is embedded into the binary at build time. Vocab stores only learner state (which words are scheduled, review history, engagement) in `vocab.db` — canonical word content comes from the embedded seed.
 

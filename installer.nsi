@@ -7,17 +7,27 @@ InstallDir "$PROGRAMFILES64\${APP_NAME}"
 RequestExecutionLevel admin
 
 Section "Install"
+  ; Ask an in-place installation to stop through its local command mailbox.
+  ; This avoids terminating an unrelated executable with the same filename.
+  IfFileExists "$INSTDIR\${BINARY}" 0 +3
+    ExecWait '"$INSTDIR\${BINARY}" -quit'
+    Sleep 5000
+
   SetOutPath "$INSTDIR"
   File "${BINARY}"
   File "icon.ico"
   File "README.md"
   File "LICENSE"
-  File /r "lexicon"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" \
     "VocabDaemon" '"$INSTDIR\${BINARY}" -daemon'
+
+  ; Start Menu entries so Vocab can be relaunched after Quit from the tray.
+  CreateDirectory "$SMPROGRAMS\${APP_NAME}"
+  CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${BINARY}"
+  CreateShortCut "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk" "$INSTDIR\uninstall.exe"
 
   Exec '"$INSTDIR\${BINARY}" -daemon'
 
@@ -36,7 +46,8 @@ Section "Install"
 SectionEnd
 
 Section "Uninstall"
-  nsExec::Exec 'taskkill /f /im ${BINARY}'
+  ExecWait '"$INSTDIR\${BINARY}" -quit'
+  Sleep 5000
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "VocabDaemon"
 
   Delete "$INSTDIR\${BINARY}"
@@ -44,8 +55,16 @@ Section "Uninstall"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\uninstall.exe"
-  RMDir /r "$INSTDIR\lexicon"
   RMDir "$INSTDIR"
 
+  Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
+  Delete "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk"
+  RMDir "$SMPROGRAMS\${APP_NAME}"
+
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
+
+  MessageBox MB_YESNO "Remove Vocab learner data and logs?" IDYES removeData IDNO keepData
+removeData:
+  RMDir /r "$APPDATA\vocab"
+keepData:
 SectionEnd

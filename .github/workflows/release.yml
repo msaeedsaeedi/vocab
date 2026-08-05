@@ -47,31 +47,7 @@ jobs:
           mkdir -p dist/installer
           unzip -j "$ZIP" "vocab.exe" -d dist/installer/
           cp icon.ico README.md LICENSE dist/installer/
-          LEXICON_TAG="$(gh release view --repo msaeedsaeedi/lexicon --json tagName -q .tagName)"
-          gh release download "$LEXICON_TAG" --repo msaeedsaeedi/lexicon \
-            --pattern '*.tar.gz' --pattern '*.tar.gz.sha256' --dir dist
-          ARCHIVE="$(find dist -maxdepth 1 -name '*.tar.gz' | head -n 1)"
-          CHECKSUM="$(find dist -maxdepth 1 -name '*.tar.gz.sha256' | head -n 1)"
-          test -n "$ARCHIVE" && test -n "$CHECKSUM"
-          EXPECTED="$(cut -d ' ' -f1 "$CHECKSUM")"
-          ACTUAL="$(sha256sum "$ARCHIVE" | cut -d ' ' -f1)"
-          test "$EXPECTED" = "$ACTUAL"
-          tar -xzf "$ARCHIVE" -C dist/installer
-          BUNDLE_DIR="$(find dist/installer -mindepth 1 -maxdepth 1 -type d -name 'lexicon-*' | head -n 1)"
-          test -n "$BUNDLE_DIR"
-          mv "$BUNDLE_DIR" dist/installer/lexicon
-          cd dist/installer/lexicon
-          SQLITE="$(ls *.sqlite)"
-          jq --arg sqlite "$SQLITE" '.artifacts |= map(select(.filename == $sqlite))' \
-            manifest.json > /tmp/m.json && mv /tmp/m.json manifest.json
-          MANIFEST_SHA="$(sha256sum manifest.json | cut -d ' ' -f1)"
-          jq --arg sqlite "$SQLITE" --arg msha "$MANIFEST_SHA" \
-            '.files |= map(select(.filename == $sqlite or .filename == "manifest.json")) | (.files[] | select(.filename == "manifest.json") | .sha256) = $msha' \
-            release-manifest.json > /tmp/rm.json && mv /tmp/rm.json release-manifest.json
-          for f in *; do
-            [ "$f" = "$SQLITE" ] || [ "$f" = "manifest.json" ] || [ "$f" = "release-manifest.json" ] || rm -f "$f"
-          done
-          cd ..
+          cd dist/installer
           sed "s/{{.Version}}/$TAG/g; s/{{.Name}}/Vocab-$TAG-windows-amd64-setup/g" \
             ../../installer.nsi > installer.nsi
           makensis installer.nsi

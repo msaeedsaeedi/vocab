@@ -3,9 +3,15 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+const currentSchemaVersion = 1
 
 type DB struct {
 	*sql.DB
@@ -20,10 +26,112 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 	d := &DB{DB: db}
-	if _, err := d.Exec(schema); err != nil {
-		return nil, fmt.Errorf("create schema: %w", err)
+	if err := d.migrate(path); err != nil {
+		_ = d.Close()
+		return nil, err
 	}
 	return d, nil
+}
+
+// migrate brings the database to currentSchemaVersion. Existing v0.x databases
+// report user_version = 0 but already contain some tables; re-applying the
+// idempotent schema is safe for them. The migration runs in a transaction and a
+// byte-for-byte backup is taken first so a failure can never destroy learner
+// state. Databases already on the current version skip the backup and schema
+// work entirely on normal startups.
+func (d *DB) migrate(path string) error {
+	var integrity string
+	if err := d.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+		return fmt.Errorf("integrity check: %w", err)
+	}
+	if integrity != "ok" {
+		return fmt.Errorf("integrity check failed: %s", integrity)
+	}
+
+	var version int
+	if err := d.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version > currentSchemaVersion {
+		return fmt.Errorf("database schema %d is newer than supported schema %d", version, currentSchemaVersion)
+	}
+	if version == currentSchemaVersion {
+		return nil
+	}
+
+	backup := ""
+	if path != ":memory:" {
+		var err error
+		backup, err = backupDatabase(path)
+		if err != nil {
+			return err
+		}
+	}
+
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(schema); err != nil {
+		migrateErr := fmt.Errorf("apply schema: %w", err)
+		if backup != "" {
+			if restoreErr := restoreBackup(path, backup); restoreErr != nil {
+				return fmt.Errorf("%w (backup restore also failed: %v)", migrateErr, restoreErr)
+			}
+		}
+		return migrateErr
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", currentSchemaVersion)); err != nil {
+		return fmt.Errorf("write schema version: %w", err)
+	}
+	return tx.Commit()
+}
+
+// backupDatabase preserves a byte-for-byte diagnostic copy of the database right
+// before the versioned migration runs.
+func backupDatabase(path string) (string, error) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("stat database: %w", err)
+	}
+	if info.Size() == 0 {
+		return "", nil
+	}
+	backup := filepath.Join(filepath.Dir(path), fmt.Sprintf("vocab.db.pre-migration-%s.bak", time.Now().UTC().Format("20060102T150405Z")))
+	if err := copyFile(path, backup); err != nil {
+		return "", fmt.Errorf("backup database: %w", err)
+	}
+	return backup, nil
+}
+
+func restoreBackup(path, backup string) error {
+	failed := path + ".failed-" + time.Now().UTC().Format("20060102T150405Z")
+	if err := os.Rename(path, failed); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("preserve failed database: %w", err)
+	}
+	return copyFile(backup, path)
+}
+
+func copyFile(source, destination string) error {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 const schema = `
@@ -80,13 +188,4 @@ CREATE TABLE IF NOT EXISTS daemon_state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS installed_datasets (
-    dataset_version TEXT PRIMARY KEY,
-    schema_version  TEXT NOT NULL,
-    path            TEXT NOT NULL,
-    installed_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    active          INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_datasets_active ON installed_datasets(active) WHERE active = 1;
 `
