@@ -3,9 +3,11 @@
 package wallpaper
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"syscall"
 	"unsafe"
 
@@ -76,6 +78,12 @@ type iDesktopWallpaperVtbl struct {
 	enable                  uintptr
 }
 
+type wallpaperBackup struct {
+	Path  string
+	Style string
+	Tile  string
+}
+
 func Set(path string) error {
 	log.Printf("wallpaper: Set(%q)", path)
 
@@ -86,6 +94,9 @@ func Set(path string) error {
 	log.Printf("wallpaper: file exists, size=%d bytes", info.Size())
 	if info.Size() == 0 {
 		return fmt.Errorf("wallpaper: set: file is empty")
+	}
+	if err := saveBackup(); err != nil {
+		log.Printf("wallpaper: backup warning: %v", err)
 	}
 
 	if err := writeRegistry(path); err != nil {
@@ -100,7 +111,51 @@ func Set(path string) error {
 	return nil
 }
 
+// Restore puts back the wallpaper that was active before Vocab first changed
+// it. If the user chose a different wallpaper in the meantime, their choice
+// wins and the stale backup is simply discarded.
+func Restore() error {
+	backup, err := readBackup()
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read backup: %w", err)
+	}
+	current, err := currentWallpaper()
+	if err != nil {
+		return fmt.Errorf("read current wallpaper: %w", err)
+	}
+	vocabPath, err := wallpaperPath()
+	if err != nil {
+		return err
+	}
+	if current != vocabPath {
+		return os.Remove(backupPath())
+	}
+	if backup.Path == "" {
+		return fmt.Errorf("backup has no wallpaper path")
+	}
+	if err := setViaDesktopWallpaper(backup.Path); err != nil {
+		if err := setViaParamInfo(backup.Path); err != nil {
+			return err
+		}
+	}
+	if err := writeRegistryValues(backup.Path, backup.Style, backup.Tile); err != nil {
+		log.Printf("wallpaper: restore registry warning: %v", err)
+	}
+	if err := os.Remove(backupPath()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove backup: %w", err)
+	}
+	log.Print("wallpaper: restored the pre-Vocab wallpaper")
+	return nil
+}
+
 func writeRegistry(path string) error {
+	return writeRegistryValues(path, "10", "0")
+}
+
+func writeRegistryValues(path, style, tile string) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER,
 		`Control Panel\Desktop`, registry.SET_VALUE)
 	if err != nil {
@@ -111,14 +166,72 @@ func writeRegistry(path string) error {
 	if err := k.SetStringValue("Wallpaper", path); err != nil {
 		return fmt.Errorf("set Wallpaper: %w", err)
 	}
-	if err := k.SetStringValue("WallpaperStyle", "10"); err != nil {
+	if err := k.SetStringValue("WallpaperStyle", style); err != nil {
 		return fmt.Errorf("set WallpaperStyle: %w", err)
 	}
-	if err := k.SetStringValue("TileWallpaper", "0"); err != nil {
+	if err := k.SetStringValue("TileWallpaper", tile); err != nil {
 		return fmt.Errorf("set TileWallpaper: %w", err)
 	}
 	log.Print("wallpaper: registry keys written")
 	return nil
+}
+
+func currentWallpaper() (string, error) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Control Panel\Desktop`, registry.QUERY_VALUE)
+	if err != nil {
+		return "", err
+	}
+	defer k.Close()
+	path, _, err := k.GetStringValue("Wallpaper")
+	return path, err
+}
+
+func backupPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "AppData", "Roaming", "vocab", "wallpaper-backup.json")
+}
+
+func saveBackup() error {
+	path := backupPath()
+	if path == "" {
+		return fmt.Errorf("find backup path")
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	wallpaper, err := currentWallpaper()
+	if err != nil {
+		return err
+	}
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Control Panel\Desktop`, registry.QUERY_VALUE)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+	style, _, _ := k.GetStringValue("WallpaperStyle")
+	tile, _, _ := k.GetStringValue("TileWallpaper")
+	data, err := json.Marshal(wallpaperBackup{Path: wallpaper, Style: style, Tile: tile})
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+func readBackup() (wallpaperBackup, error) {
+	var backup wallpaperBackup
+	data, err := os.ReadFile(backupPath())
+	if err != nil {
+		return backup, err
+	}
+	return backup, json.Unmarshal(data, &backup)
 }
 
 func setViaDesktopWallpaper(path string) error {

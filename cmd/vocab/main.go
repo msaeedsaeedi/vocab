@@ -1,9 +1,11 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/rand/v2"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,6 +34,7 @@ var (
 
 	learnNowRequests = make(chan struct{}, 1)
 	learnNowPending  atomic.Bool
+	learningPaused   atomic.Bool
 	quitPending      atomic.Bool
 
 	version = "dev"
@@ -38,7 +42,10 @@ var (
 	date    = "unknown"
 )
 
-var errDaemonStop = fmt.Errorf("daemon stop requested")
+var (
+	errDaemonStop     = fmt.Errorf("daemon stop requested")
+	errLearningPaused = fmt.Errorf("learning paused")
+)
 
 func main() {
 	resetDB := flag.Bool("reset-db", false, "Delete Vocab learner state and start fresh")
@@ -48,6 +55,7 @@ func main() {
 	produceID := flag.Int64("produce", 0, "Word ID to record production feedback for")
 	produced := flag.Bool("produced", false, "Whether the user could produce a sentence (used with --produce)")
 	register := flag.Bool("register", false, "Register app for Windows notifications")
+	report := flag.Bool("report", false, "Write a local diagnostic bundle for bug reports")
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
 	preview := flag.Bool("preview", false, "Generate wallpaper preview to preview.jpg without setting it")
@@ -106,6 +114,14 @@ func main() {
 
 	db := openDB(*resetDB)
 	defer db.Close()
+	if *report {
+		path, err := writeDiagnosticReport(db, logPath)
+		if err != nil {
+			log.Fatalf("report: %v", err)
+		}
+		fmt.Println(path)
+		return
+	}
 
 	if *register {
 		doRegister()
@@ -125,11 +141,39 @@ func main() {
 		}
 		return
 	}
+	if *daemon && !ensureWallpaperConsent(db) {
+		log.Print("daemon start cancelled: wallpaper consent was declined")
+		return
+	}
 
 	if *daemon {
 		enableAutostart()
 		registerNotifications()
-		go tray.Run(ctx, tray.Actions{LearnNow: requestLearnNow, Quit: stop})
+		notify.SetActivationCallback(func(arguments string) {
+			// COM invokes this callback on its own thread. Do database work outside
+			// that call so activation can return promptly.
+			go dispatchToastActivation(db, arguments)
+		})
+		go tray.Run(ctx, tray.Actions{
+			LearnNow:    requestLearnNow,
+			PauseResume: func() { toggleLearningPaused(db) },
+			IsPaused:    learningPaused.Load,
+			Report: func() {
+				path, err := writeDiagnosticReport(db, logPath)
+				if err != nil {
+					log.Printf("report: %v", err)
+					return
+				}
+				if err := revealReport(path); err != nil {
+					log.Printf("report: reveal %s: %v", path, err)
+				}
+				if err := notify.SendStatus("Diagnostic report created. Explorer opened it so you can attach it to a support request."); err != nil {
+					log.Printf("report: confirmation notification: %v", err)
+				}
+			},
+			Quit: stop,
+		})
+		defer restoreWallpaper()
 	}
 
 	wordList := words.LoadSeed()
@@ -137,6 +181,14 @@ func main() {
 }
 
 func handleReviewCommand(db *database.DB, id int64, knewDeprecated bool, ratingFlag int) error {
+	return handleReview(db, id, knewDeprecated, ratingFlag, true)
+}
+
+func handleReviewActivation(db *database.DB, id int64, rating int) error {
+	return handleReview(db, id, false, rating, false)
+}
+
+func handleReview(db *database.DB, id int64, knewDeprecated bool, ratingFlag int, recordEngagement bool) error {
 	r := ratingFlag
 	if knewDeprecated && ratingFlag == 0 {
 		r = 2
@@ -153,8 +205,6 @@ func handleReviewCommand(db *database.DB, id int64, knewDeprecated bool, ratingF
 		return fmt.Errorf("invalid rating %d (use 0=forgot, 1=struggled, 2=knew)", r)
 	}
 	log.Printf("review: id=%d rating=%d outcome=%s", id, r, outcome)
-	tr := engage.New(db)
-
 	w, err := word.GetWord(db, id)
 	if err != nil {
 		return fmt.Errorf("get word: %w", err)
@@ -164,10 +214,42 @@ func handleReviewCommand(db *database.DB, id int64, knewDeprecated bool, ratingF
 		return fmt.Errorf("schedule review: %w", err)
 	}
 
-	tr.RecordEngagement()
-	tr.RecordNotificationAnswered()
+	if recordEngagement {
+		tr := engage.New(db)
+		tr.RecordEngagement()
+		tr.RecordNotificationAnswered()
+	}
 	log.Printf("review: recorded id=%d rating=%d", id, r)
 	return nil
+}
+
+// dispatchToastActivation parses the arguments attached to a Windows toast
+// button and applies the same state transition as the corresponding CLI flag.
+// Engagement is deliberately left to waitForReview, which observes the state
+// transition and records one answer for the notification it sent.
+func dispatchToastActivation(db *database.DB, arguments string) {
+	flags := flag.NewFlagSet("toast activation", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	reviewID := flags.Int64("review", 0, "")
+	rating := flags.Int("rating", 0, "")
+	produceID := flags.Int64("produce", 0, "")
+	produced := flags.Bool("produced", false, "")
+	if err := flags.Parse(strings.Fields(arguments)); err != nil {
+		log.Printf("toast activation ignored: parse %q: %v", arguments, err)
+		return
+	}
+	switch {
+	case *reviewID > 0 && *produceID == 0:
+		if err := handleReviewActivation(db, *reviewID, *rating); err != nil {
+			log.Printf("toast review: %v", err)
+		}
+	case *produceID > 0 && *reviewID == 0:
+		if err := handleProduceCommand(db, *produceID, *produced); err != nil {
+			log.Printf("toast produce: %v", err)
+		}
+	default:
+		log.Printf("toast activation ignored: unsupported arguments %q", arguments)
+	}
 }
 
 func openLog() (*os.File, string) {
@@ -188,6 +270,70 @@ func openLog() (*os.File, string) {
 		log.Fatalf("cannot open log %s: %v", path, err)
 	}
 	return f, path
+}
+
+// writeDiagnosticReport creates a local, shareable bundle without uploading
+// anything or including learner content. It contains recent application logs
+// and a compact runtime/database health snapshot.
+func writeDiagnosticReport(db *database.DB, logPath string) (string, error) {
+	dir := filepath.Join(dataDir(), "reports")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create report directory: %w", err)
+	}
+	path := filepath.Join(dir, "vocab-report-"+time.Now().UTC().Format("20060102T150405Z")+".zip")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return "", fmt.Errorf("create bundle: %w", err)
+	}
+	zw := zip.NewWriter(f)
+	closeWithError := func(err error) (string, error) {
+		_ = zw.Close()
+		_ = f.Close()
+		return "", err
+	}
+
+	var integrity string
+	if err := db.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+		integrity = "error: " + err.Error()
+	}
+	diagnostics := fmt.Sprintf("generated_utc=%s\nversion=%s\ncommit=%s\nbuilt=%s\ngo=%s\nos=%s/%s\ndatabase_integrity=%s\n",
+		time.Now().UTC().Format(time.RFC3339), version, commit, date, runtime.Version(), runtime.GOOS, runtime.GOARCH, integrity)
+	entry, err := zw.Create("diagnostics.txt")
+	if err != nil {
+		return closeWithError(fmt.Errorf("add diagnostics: %w", err))
+	}
+	if _, err := io.WriteString(entry, diagnostics); err != nil {
+		return closeWithError(fmt.Errorf("write diagnostics: %w", err))
+	}
+	for _, source := range []string{logPath, filepath.Join(filepath.Dir(logPath), "vocab.1.log")} {
+		in, err := os.Open(source)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return closeWithError(fmt.Errorf("open log: %w", err))
+		}
+		entry, err := zw.Create(filepath.Join("logs", filepath.Base(source)))
+		if err == nil {
+			_, err = io.Copy(entry, in)
+		}
+		closeErr := in.Close()
+		if err != nil {
+			return closeWithError(fmt.Errorf("add log: %w", err))
+		}
+		if closeErr != nil {
+			return closeWithError(fmt.Errorf("close log: %w", closeErr))
+		}
+	}
+	if err := zw.Close(); err != nil {
+		_ = f.Close()
+		return "", fmt.Errorf("finish bundle: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("close bundle: %w", err)
+	}
+	log.Printf("diagnostic report written: %s", path)
+	return path, nil
 }
 
 func dataDir() string {
@@ -246,7 +392,7 @@ func sleepDevContext(ctx context.Context, d time.Duration) bool {
 			return false
 		case <-poll.C:
 			drainDaemonCommand()
-			if quitPending.Load() || learnNowPending.Load() {
+			if quitPending.Load() || learnNowPending.Load() || learningPaused.Load() {
 				return false
 			}
 		}
@@ -308,6 +454,52 @@ func consumeLearnNowRequest() bool {
 	return true
 }
 
+func loadLearningPaused(db *database.DB) {
+	var value string
+	err := db.QueryRow(`SELECT value FROM daemon_state WHERE key = 'learning_paused'`).Scan(&value)
+	learningPaused.Store(err == nil && value == "1")
+	if learningPaused.Load() {
+		log.Print("learning is paused")
+	}
+}
+
+func toggleLearningPaused(db *database.DB) {
+	paused := !learningPaused.Load()
+	value := "0"
+	if paused {
+		value = "1"
+	}
+	if _, err := db.Exec(`INSERT INTO daemon_state (key, value) VALUES ('learning_paused', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, value); err != nil {
+		log.Printf("pause learning: %v", err)
+		return
+	}
+	learningPaused.Store(paused)
+	if paused {
+		log.Print("learning paused")
+		if err := restoreWallpaper(); err != nil {
+			log.Printf("restore wallpaper on pause: %v", err)
+		}
+		return
+	}
+	log.Print("learning resumed")
+}
+
+func waitWhilePaused(ctx context.Context) bool {
+	for learningPaused.Load() {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(500 * time.Millisecond):
+			drainDaemonCommand()
+			if quitPending.Load() {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func enableAutostart() {
 	execPath, err := os.Executable()
 	if err != nil {
@@ -355,8 +547,11 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 
 	log.Print("daemon started")
 	tr := engage.New(db)
+	loadLearningPaused(db)
 
-	resumeAmbientSession(ctx, db, wordList, tr)
+	if !learningPaused.Load() {
+		resumeAmbientSession(ctx, db, wordList, tr)
+	}
 
 	for {
 		drainDaemonCommand()
@@ -369,6 +564,12 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 			log.Print("shutting down daemon")
 			return
 		default:
+		}
+		if learningPaused.Load() {
+			if !waitWhilePaused(ctx) {
+				return
+			}
+			continue
 		}
 
 		forceNow := consumeLearnNowRequest()
@@ -421,6 +622,10 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 				log.Printf("present word %d: %v", w.ID, err)
 				if quitPending.Load() || ctx.Err() != nil {
 					return
+				}
+				if learningPaused.Load() {
+					tr.ClearCurrentWord()
+					break
 				}
 			}
 
@@ -541,6 +746,10 @@ func phraseExpose(ctx context.Context, db *database.DB, tr *engage.Tracker, w wo
 		if quitPending.Load() {
 			return errDaemonStop
 		}
+		if learningPaused.Load() {
+			tr.ClearCurrentWord()
+			return errLearningPaused
+		}
 		return ctx.Err()
 	}
 
@@ -590,6 +799,11 @@ func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w w
 				log.Print("shutting down during review wait")
 				tr.ClearCurrentWord()
 				return errDaemonStop
+			}
+			if learningPaused.Load() {
+				log.Print("learning paused during review wait")
+				tr.ClearCurrentWord()
+				return errLearningPaused
 			}
 			if learnNowPending.Load() {
 				log.Printf("learn now queued; it will run after word %d resolves", w.ID)
@@ -820,6 +1034,11 @@ func waitForProduce(ctx context.Context, db *database.DB, tr *engage.Tracker, w 
 				log.Print("shutting down during produce wait")
 				tr.ClearCurrentWord()
 				return errDaemonStop
+			}
+			if learningPaused.Load() {
+				log.Print("learning paused during production wait")
+				tr.ClearCurrentWord()
+				return errLearningPaused
 			}
 
 			var val string

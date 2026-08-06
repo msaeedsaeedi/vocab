@@ -24,7 +24,7 @@ Vocab is a Windows desktop daemon that helps you learn vocabulary through a two-
 - **FSRS + BKT scheduler** — Combines Free Spaced Repetition Scheduler with Bayesian Knowledge Tracing for optimal review timing.
 - **Adaptive pacing** — Automatically adjusts daily word count and active hours based on your engagement patterns.
 - **Curated word list** — Ships a built-in curated seed of common words embedded in the binary; no external data or downloads.
-- **Tray controls** — **Learn now** starts the next session immediately; **Quit** shuts the daemon down cleanly.
+- **Tray controls** — Start a session now, pause/resume learning, create a support report, or quit.
 - **Autostart support** — Registers itself in the Windows Registry to launch on login.
 - **Dev mode** — 60× faster timeouts for testing (`-dev` flag).
 
@@ -74,6 +74,8 @@ vocab.exe -daemon -dev
 
 Once running, Vocab schedules words from the built-in curated seed and begins learning immediately.
 
+On its first run, Vocab asks for permission to temporarily change your wallpaper and send learning notifications. Your previous wallpaper is restored when you pause or quit Vocab.
+
 ## Usage
 
 | Flag | Description |
@@ -87,6 +89,7 @@ Once running, Vocab schedules words from the built-in curated seed and begins le
 | `-quit` | Ask a running daemon to shut down cleanly |
 | `-preview` | Generate a wallpaper preview image |
 | `-register` | Register app for Windows toast notifications |
+| `-report` | Create a local diagnostic ZIP for a bug report |
 | `-version` | Print version and exit |
 
 ### Mark a word as known
@@ -114,9 +117,9 @@ Vocab runs as a persistent daemon on your desktop, cycling through two phases fo
 
 1. **Expose phase (30 min)** — The word, definition, and example sentence are rendered as your desktop wallpaper. This passive exposure lets your brain subconsciously absorb the word.
 
-2. **Recall phase (up to 2 hr)** — A desktop notification asks you to recall the word's meaning. You respond via the **Knew it** / **Didn't know** notification buttons (or `vocab -review <id> -knew` / `vocab -review <id>`). If no response within the window, the word auto-lapses and is re-scheduled.
+2. **Recall phase (up to 2 hr)** — A desktop notification asks you to recall the word's meaning. You respond via **Knew it**, **Struggled**, or **Forgot** (or with `vocab -review <id> -rating 2`, `1`, or `0`). If no response within the window, the word auto-lapses and is re-scheduled.
 
-A tray icon offers **Learn now** to jump straight into the next session (even outside the active window) and **Quit** to stop the daemon. `-learn-now` and `-quit` on the command line do the same.
+A tray icon offers **Learn now** to jump straight into the next session (even outside the active window), **Pause learning** to stop new learning until resumed, **Report a problem...** to create a support bundle, and **Quit** to stop the daemon. `-learn-now` and `-quit` on the command line do the same.
 
 Between sessions, an **adaptive engine** tracks your engagement and adjusts:
 - Words per day (fewer if you miss reviews)
@@ -135,10 +138,21 @@ Data is stored at `%APPDATA%/vocab/`:
 | `logs/vocab.log` | Daemon log (rotated to `vocab.1.log` when it exceeds 2 MB) |
 | `daemon-command` | Local command mailbox for `-learn-now` / `-quit` |
 | `wallpaper.jpg` | Current word rendered as wallpaper |
+| `reports/` | Local diagnostic ZIPs created for support |
 
 Schema migrations run automatically on startup; a recovery backup (`vocab.db.pre-migration-*.bak`) is kept before a migration and any failed database is preserved, so learner data is never destroyed.
 
 The curated word list lives in `internal/words/seed.jsonl` and is embedded into the binary at build time. Vocab stores only learner state (which words are scheduled, review history, engagement) in `vocab.db` — canonical word content comes from the embedded seed.
+
+## Get help
+
+Use the tray icon’s **Report a problem...** item to create a diagnostic ZIP and open it in Explorer. Attach that ZIP to a [GitHub issue](https://github.com/msaeedsaeedi/vocab/issues). You can also run:
+
+```powershell
+vocab.exe -report
+```
+
+Reports stay on your computer until you choose to attach them. They include recent Vocab logs plus the app version, Windows/Go runtime details, and a SQLite integrity result. They do not include your learner database or the embedded word list.
 
 ## Development
 

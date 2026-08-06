@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -18,8 +19,11 @@ import (
 )
 
 type Actions struct {
-	LearnNow func()
-	Quit     func()
+	LearnNow    func()
+	PauseResume func()
+	IsPaused    func() bool
+	Report      func()
+	Quit        func()
 }
 
 const (
@@ -41,7 +45,9 @@ const (
 	mfSeparator       = 0x0800
 	tpmRightButton    = 0x0002
 	cmdLearnNow       = 1001
-	cmdQuit           = 1002
+	cmdPauseResume    = 1002
+	cmdReport         = 1003
+	cmdQuit           = 1004
 	imageIcon         = 1
 	lrDefaultSize     = 0x0040
 	lrLoadFromFile    = 0x0010
@@ -111,7 +117,10 @@ type notifyIconData struct {
 	BalloonIcon      windows.Handle
 }
 
-var activeActions Actions
+var (
+	activeActions Actions
+	menuOpen      atomic.Bool
+)
 
 func Run(ctx context.Context, actions Actions) {
 	activeActions = actions
@@ -170,6 +179,14 @@ func windowProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 		case cmdLearnNow:
 			if activeActions.LearnNow != nil {
 				go activeActions.LearnNow()
+			}
+		case cmdPauseResume:
+			if activeActions.PauseResume != nil {
+				go activeActions.PauseResume()
+			}
+		case cmdReport:
+			if activeActions.Report != nil {
+				go activeActions.Report()
 			}
 		case cmdQuit:
 			if activeActions.Quit != nil {
@@ -242,11 +259,23 @@ func deleteIcon(hwnd windows.Handle) {
 }
 
 func showMenu(hwnd windows.Handle) {
+	if !menuOpen.CompareAndSwap(false, true) {
+		return
+	}
+	defer menuOpen.Store(false)
 	menu, _, _ := procCreatePopupMenu.Call()
 	defer procDestroyMenu.Call(menu)
 	learn, _ := windows.UTF16PtrFromString("Learn now")
+	pauseLabel := "Pause learning"
+	if activeActions.IsPaused != nil && activeActions.IsPaused() {
+		pauseLabel = "Resume learning"
+	}
+	pause, _ := windows.UTF16PtrFromString(pauseLabel)
+	report, _ := windows.UTF16PtrFromString("Report a problem...")
 	quit, _ := windows.UTF16PtrFromString("Quit")
 	procAppendMenu.Call(menu, mfString, cmdLearnNow, uintptr(unsafe.Pointer(learn)))
+	procAppendMenu.Call(menu, mfString, cmdPauseResume, uintptr(unsafe.Pointer(pause)))
+	procAppendMenu.Call(menu, mfString, cmdReport, uintptr(unsafe.Pointer(report)))
 	procAppendMenu.Call(menu, mfSeparator, 0, 0)
 	procAppendMenu.Call(menu, mfString, cmdQuit, uintptr(unsafe.Pointer(quit)))
 	var p point

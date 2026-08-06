@@ -11,3 +11,15 @@ type Word struct {
 func SendProduction(w Word) error {
 	return sendProduction(w)
 }
+
+// SetActivationCallback receives the argument string from a toast action while
+// the process that displayed the toast is still running.
+func SetActivationCallback(callback func(arguments string)) {
+	setActivationCallback(callback)
+}
+
+// SendStatus confirms a user-requested local action without collecting or
+// transmitting any data.
+func SendStatus(message string) error {
+	return sendStatus(message)
+}

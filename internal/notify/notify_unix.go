@@ -12,6 +12,12 @@ func RegisterApp(exePath string) error {
 	return fmt.Errorf("notification registration not needed on %s", runtime.GOOS)
 }
 
+func setActivationCallback(func(arguments string)) {}
+
+func sendStatus(message string) error {
+	return exec.Command("notify-send", "-a", "Vocab", "Vocab", message).Run()
+}
+
 func Send(w Word) error {
 	switch runtime.GOOS {
 	case "linux":

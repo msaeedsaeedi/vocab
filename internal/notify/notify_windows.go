@@ -17,6 +17,12 @@ func RegisterApp(exePath string) error {
 	})
 }
 
+func setActivationCallback(callback func(arguments string)) {
+	toast.SetActivationCallback(func(arguments string, _ []toast.UserData) {
+		callback(arguments)
+	})
+}
+
 func Send(w Word) error {
 	t := toast.Notification{
 		AppID: "Vocab",
@@ -43,11 +49,19 @@ func Send(w Word) error {
 	return t.Push()
 }
 
+func sendStatus(message string) error {
+	return toast.Notification{
+		AppID: "Vocab",
+		Title: "Vocab",
+		Body:  message,
+	}.Push()
+}
+
 func sendProduction(w Word) error {
 	t := toast.Notification{
-		AppID:   "Vocab",
-		Title:   "Vocab",
-		Body:    "Can you use \"" + w.Text + "\" in a sentence?",
+		AppID: "Vocab",
+		Title: "Vocab",
+		Body:  "Can you use \"" + w.Text + "\" in a sentence?",
 		Actions: []toast.Action{
 			{
 				Type:      toast.Foreground,

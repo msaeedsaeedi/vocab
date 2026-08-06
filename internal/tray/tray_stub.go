@@ -8,8 +8,11 @@ package tray
 import "context"
 
 type Actions struct {
-	LearnNow func()
-	Quit     func()
+	LearnNow    func()
+	PauseResume func()
+	IsPaused    func() bool
+	Report      func()
+	Quit        func()
 }
 
 func Run(ctx context.Context, _ Actions) {
