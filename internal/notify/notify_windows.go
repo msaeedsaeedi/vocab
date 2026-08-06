@@ -42,3 +42,24 @@ func Send(w Word) error {
 	}
 	return t.Push()
 }
+
+func sendProduction(w Word) error {
+	t := toast.Notification{
+		AppID:   "Vocab",
+		Title:   "Vocab",
+		Body:    "Can you use \"" + w.Text + "\" in a sentence?",
+		Actions: []toast.Action{
+			{
+				Type:      toast.Foreground,
+				Content:   "Got it",
+				Arguments: fmt.Sprintf("--produce %d --produced", w.ID),
+			},
+			{
+				Type:      toast.Foreground,
+				Content:   "Couldn't",
+				Arguments: fmt.Sprintf("--produce %d", w.ID),
+			},
+		},
+	}
+	return t.Push()
+}

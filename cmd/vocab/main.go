@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -43,6 +44,8 @@ func main() {
 	reviewID := flag.Int64("review", 0, "Word ID to record feedback for")
 	rating := flag.Int("rating", 0, "Rating 0=forgot, 1=struggled, 2=knew (used with --review)")
 	knewIt := flag.Bool("knew", false, "Shorthand for --rating 2 (deprecated)")
+	produceID := flag.Int64("produce", 0, "Word ID to record production feedback for")
+	produced := flag.Bool("produced", false, "Whether the user could produce a sentence (used with --produce)")
 	register := flag.Bool("register", false, "Register app for Windows notifications")
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
@@ -111,6 +114,13 @@ func main() {
 	if *reviewID > 0 {
 		if err := handleReviewCommand(db, *reviewID, *knewIt, *rating); err != nil {
 			log.Fatalf("review: %v", err)
+		}
+		return
+	}
+
+	if *produceID > 0 {
+		if err := handleProduceCommand(db, *produceID, *produced); err != nil {
+			log.Fatalf("produce: %v", err)
 		}
 		return
 	}
@@ -471,10 +481,36 @@ func presentWord(ctx context.Context, db *database.DB, tr *engage.Tracker, w wor
 		return fmt.Errorf("recall phase: %w", err)
 	}
 
+	if shouldProduce(db, w) {
+		_ = phaseProduce(ctx, db, tr, w)
+	}
+
 	if err := word.UpdatePhase(db, w.ID, ""); err != nil {
 		log.Printf("update phase done: %v", err)
 	}
 	return nil
+}
+
+func shouldProduce(db *database.DB, w word.Word) bool {
+	updated, err := word.GetWord(db, w.ID)
+	if err != nil {
+		return false
+	}
+	if updated.ReviewCount < 2 {
+		return false
+	}
+	now := time.Now()
+	elapsed := 0.0
+	if updated.LastReviewed != "" {
+		t, err := time.Parse("2006-01-02 15:04:05", updated.LastReviewed)
+		if err == nil {
+			elapsed = now.Sub(t).Hours()
+		}
+	}
+	if scheduler.RecallProbability(updated.Stability, elapsed) < 0.75 {
+		return false
+	}
+	return rand.Float64() < 0.15
 }
 
 func phraseExpose(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
@@ -612,6 +648,11 @@ func resumeAmbientSession(ctx context.Context, db *database.DB, wordList *words.
 		if err := waitForReview(ctx, db, tr, *w); err != nil {
 			log.Printf("resume review ERROR: %v", err)
 		}
+	case "produce":
+		log.Printf("resume: continuing produce wait for word %q", w.Text)
+		if err := waitForProduce(ctx, db, tr, *w); err != nil {
+			log.Printf("resume produce ERROR: %v", err)
+		}
 	}
 }
 
@@ -695,4 +736,79 @@ func sleepUntilNextWindow(ctx context.Context, start, end int) {
 	}
 	log.Printf("outside active window (%d-%d), sleeping %v", start, end, sleepDur.Round(time.Minute))
 	sleepDevContext(ctx, sleepDur)
+}
+
+func handleProduceCommand(db *database.DB, id int64, produced bool) error {
+	val := "no"
+	if produced {
+		val = "yes"
+	}
+	log.Printf("produce: id=%d produced=%s", id, val)
+	if _, err := db.Exec(
+		`INSERT INTO daemon_state (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = ?`,
+		fmt.Sprintf("produce_%d", id), val, val,
+	); err != nil {
+		return fmt.Errorf("store produce result: %w", err)
+	}
+	return nil
+}
+
+func phaseProduce(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
+	log.Printf("produce: asking for sentence with %q (id=%d)", w.Text, w.ID)
+	tr.PutCurrentWord(w.ID, "produce")
+
+	if err := notify.SendProduction(notify.Word{ID: w.ID, Text: w.Text}); err != nil {
+		log.Printf("produce notify ERROR: %v", err)
+		tr.ClearCurrentWord()
+		return err
+	}
+	log.Print("produce notification sent")
+
+	return waitForProduce(ctx, db, tr, w)
+}
+
+func waitForProduce(ctx context.Context, db *database.DB, tr *engage.Tracker, w word.Word) error {
+	key := fmt.Sprintf("produce_%d", w.ID)
+	log.Printf("waiting for production response (word %d, polling 5s, timeout 30m)", w.ID)
+
+	deadline := time.Now().Add(devDuration(30 * time.Minute))
+	pollInterval := devDuration(2 * time.Minute)
+	if pollInterval > 5*time.Second {
+		pollInterval = 5 * time.Second
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Print("shutdown during produce wait")
+			tr.ClearCurrentWord()
+			return nil
+
+		case <-time.After(pollInterval):
+			drainDaemonCommand()
+			if quitPending.Load() {
+				log.Print("shutting down during produce wait")
+				tr.ClearCurrentWord()
+				return errDaemonStop
+			}
+
+			var val string
+			err := db.QueryRow(`SELECT value FROM daemon_state WHERE key = ?`, key).Scan(&val)
+			if err == nil {
+				if _, delErr := db.Exec(`DELETE FROM daemon_state WHERE key = ?`, key); delErr != nil {
+					log.Printf("produce: cleanup key: %v", delErr)
+				}
+				log.Printf("produce: word %d result=%s", w.ID, val)
+				tr.ClearCurrentWord()
+				return nil
+			}
+
+			if time.Now().After(deadline) {
+				log.Printf("produce: timeout for word %d", w.ID)
+				tr.ClearCurrentWord()
+				return nil
+			}
+		}
+	}
 }

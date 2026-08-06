@@ -7,3 +7,7 @@ type Word struct {
 	ID   int64
 	Text string
 }
+
+func SendProduction(w Word) error {
+	return sendProduction(w)
+}
