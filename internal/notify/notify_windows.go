@@ -50,11 +50,12 @@ func Send(w Word) error {
 }
 
 func sendStatus(message string) error {
-	return toast.Notification{
+	n := toast.Notification{
 		AppID: "Vocab",
 		Title: "Vocab",
 		Body:  message,
-	}.Push()
+	}
+	return n.Push()
 }
 
 func sendProduction(w Word) error {
