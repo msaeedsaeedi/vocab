@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -665,6 +666,7 @@ func hydrateWord(wordList *words.List, w *word.Word) error {
 	w.Definition = entry.Definition
 	w.Example = entry.Example
 	w.Pos = entry.Pos
+	w.Collocation = entry.Collocation
 	return nil
 }
 
@@ -677,13 +679,33 @@ func introduceItems(db *database.DB, wordList *words.List, count int) error {
 	for _, item := range existing {
 		known[item.LexemeID] = true
 	}
-	ids := wordList.IDs()
-	introduced := 0
-	for _, id := range ids {
+
+	type candidate struct {
+		id   string
+		rank int
+	}
+	var candidates []candidate
+	for _, id := range wordList.IDs() {
 		if known[id] {
 			continue
 		}
 		entry, ok := wordList.Lookup(id)
+		if !ok {
+			continue
+		}
+		rank := entry.FrequencyRank
+		if rank == 0 {
+			rank = 10000
+		}
+		candidates = append(candidates, candidate{id: id, rank: rank})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].rank < candidates[j].rank
+	})
+
+	introduced := 0
+	for _, c := range candidates {
+		entry, ok := wordList.Lookup(c.id)
 		if !ok {
 			continue
 		}

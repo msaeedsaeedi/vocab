@@ -12,12 +12,13 @@ type Word struct {
 	LexemeID       string `json:"lexeme_id"`
 	SenseID        string `json:"sense_id,omitempty"`
 	DatasetVersion string `json:"dataset_version"`
-	// Text, Definition, Example, and Pos are presentation fields hydrated from
+	// Text, Definition, Example, Pos, and Collocation are presentation fields hydrated from
 	// the read-only Lexicon dataset. They are never persisted in vocab.db.
 	Text          string  `json:"text"`
 	Definition    string  `json:"definition"`
 	Example       string  `json:"example"`
 	Pos           string  `json:"pos,omitempty"`
+	Collocation   string  `json:"collocation,omitempty"`
 	Box           int     `json:"box"`
 	NextDue       string  `json:"next_due"`
 	Stability     float64 `json:"stability"`

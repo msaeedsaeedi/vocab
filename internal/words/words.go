@@ -15,11 +15,14 @@ var seedBytes []byte
 
 // Entry is a single curated word with presentation fields.
 type Entry struct {
-	LexemeID   string `json:"lexeme_id"`
-	Text       string `json:"text"`
-	Definition string `json:"definition"`
-	Example    string `json:"example"`
-	Pos        string `json:"pos"`
+	LexemeID      string `json:"lexeme_id"`
+	Text          string `json:"text"`
+	Definition    string `json:"definition"`
+	Example       string `json:"example"`
+	Pos           string `json:"pos"`
+	Collocation   string `json:"collocation,omitempty"`
+	Level         string `json:"level,omitempty"`
+	FrequencyRank int    `json:"frequency_rank,omitempty"`
 }
 
 // List holds the in-memory curated word catalog.
