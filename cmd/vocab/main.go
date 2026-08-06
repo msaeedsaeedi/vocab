@@ -138,10 +138,10 @@ func main() {
 
 func handleReviewCommand(db *database.DB, id int64, knewDeprecated bool, ratingFlag int) error {
 	r := ratingFlag
-	outcome := "failure"
 	if knewDeprecated && ratingFlag == 0 {
 		r = 2
 	}
+	var outcome string
 	switch r {
 	case 0:
 		outcome = "failure"
@@ -484,7 +484,9 @@ func presentWord(ctx context.Context, db *database.DB, tr *engage.Tracker, w wor
 	}
 
 	if shouldProduce(db, w) {
-		_ = phaseProduce(ctx, db, tr, w)
+		if err := phaseProduce(ctx, db, tr, w); err != nil {
+			log.Printf("produce phase: %v", err)
+		}
 	}
 
 	if err := word.UpdatePhase(db, w.ID, ""); err != nil {
@@ -687,7 +689,7 @@ func introduceItems(db *database.DB, wordList *words.List, count int) error {
 		id   string
 		rank int
 	}
-	var candidates []candidate
+	candidates := make([]candidate, 0, len(wordList.IDs()))
 	for _, id := range wordList.IDs() {
 		if known[id] {
 			continue
