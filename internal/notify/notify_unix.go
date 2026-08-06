@@ -24,7 +24,7 @@ func Send(w Word) error {
 }
 
 func sendLinux(w Word) error {
-	body := fmt.Sprintf("Do you remember the meaning of %q?", w.Text)
+	body := fmt.Sprintf("Do you remember the meaning of %q?\nvocab -review %d -rating 0|1|2  (0=forgot, 1=struggled, 2=knew)", w.Text, w.ID)
 	return exec.Command("notify-send",
 		"-a", "Vocab",
 		"-i", "dialog-information",

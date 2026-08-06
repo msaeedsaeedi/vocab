@@ -41,7 +41,8 @@ var errDaemonStop = fmt.Errorf("daemon stop requested")
 func main() {
 	resetDB := flag.Bool("reset-db", false, "Delete Vocab learner state and start fresh")
 	reviewID := flag.Int64("review", 0, "Word ID to record feedback for")
-	knewIt := flag.Bool("knew", false, "Whether the user knew the word (used with --review)")
+	rating := flag.Int("rating", 0, "Rating 0=forgot, 1=struggled, 2=knew (used with --review)")
+	knewIt := flag.Bool("knew", false, "Shorthand for --rating 2 (deprecated)")
 	register := flag.Bool("register", false, "Register app for Windows notifications")
 	daemon := flag.Bool("daemon", false, "Run as background daemon")
 	dev := flag.Bool("dev", false, "Dev mode: 60x faster timeouts for debugging")
@@ -108,7 +109,7 @@ func main() {
 	}
 
 	if *reviewID > 0 {
-		if err := handleReviewCommand(db, *reviewID, *knewIt); err != nil {
+		if err := handleReviewCommand(db, *reviewID, *knewIt, *rating); err != nil {
 			log.Fatalf("review: %v", err)
 		}
 		return
@@ -124,8 +125,23 @@ func main() {
 	runDaemon(ctx, db, wordList)
 }
 
-func handleReviewCommand(db *database.DB, id int64, knew bool) error {
-	log.Printf("review: id=%d knew=%v", id, knew)
+func handleReviewCommand(db *database.DB, id int64, knewDeprecated bool, ratingFlag int) error {
+	r := ratingFlag
+	outcome := "failure"
+	if knewDeprecated && ratingFlag == 0 {
+		r = 2
+	}
+	switch r {
+	case 0:
+		outcome = "failure"
+	case 1:
+		outcome = "struggle"
+	case 2:
+		outcome = "success"
+	default:
+		return fmt.Errorf("invalid rating %d (use 0=forgot, 1=struggled, 2=knew)", r)
+	}
+	log.Printf("review: id=%d rating=%d outcome=%s", id, r, outcome)
 	tr := engage.New(db)
 
 	w, err := word.GetWord(db, id)
@@ -133,16 +149,12 @@ func handleReviewCommand(db *database.DB, id int64, knew bool) error {
 		return fmt.Errorf("get word: %w", err)
 	}
 
-	rating := 0
-	if knew {
-		rating = 2
-	}
-	if _, err := scheduler.ScheduleReview(db, w, rating); err != nil {
+	if _, err := scheduler.ScheduleReview(db, w, r, outcome); err != nil {
 		return fmt.Errorf("schedule review: %w", err)
 	}
 
 	tr.RecordEngagement()
-	log.Printf("review: recorded id=%d rating=%d", id, rating)
+	log.Printf("review: recorded id=%d rating=%d", id, r)
 	return nil
 }
 
@@ -555,8 +567,8 @@ func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w w
 			}
 
 			if time.Now().After(deadline) {
-				log.Printf("word %d review timeout — auto-lapsing", w.ID)
-				if _, err := scheduler.ScheduleReview(db, &w, 0); err != nil {
+				log.Printf("word %d review timeout — marking as missed", w.ID)
+				if _, err := scheduler.ScheduleReview(db, &w, 0, "missed"); err != nil {
 					return fmt.Errorf("auto-lapse: %w", err)
 				}
 				if err := word.UpdatePhase(db, w.ID, ""); err != nil {

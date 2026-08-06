@@ -34,6 +34,7 @@ type ReviewLog struct {
 	ID           int64   `json:"id"`
 	WordID       int64   `json:"learning_item_id"`
 	Rating       int     `json:"rating"`
+	Outcome      string  `json:"outcome"`
 	ElapsedHours float64 `json:"elapsed_hours"`
 	Stability    float64 `json:"stability"`
 	Timestamp    string  `json:"timestamp"`
@@ -98,9 +99,9 @@ func UpdatePhase(db *database.DB, id int64, phase string) error {
 
 func InsertReviewLog(db *database.DB, log *ReviewLog) error {
 	_, err := db.Exec(
-		`INSERT INTO review_events (learning_item_id, rating, elapsed_hours, stability, timestamp)
-		 VALUES (?, ?, ?, ?, datetime('now'))`,
-		log.WordID, log.Rating, log.ElapsedHours, log.Stability,
+		`INSERT INTO review_events (learning_item_id, rating, outcome, elapsed_hours, stability, timestamp)
+		 VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+		log.WordID, log.Rating, log.Outcome, log.ElapsedHours, log.Stability,
 	)
 	return err
 }

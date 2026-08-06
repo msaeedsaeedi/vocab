@@ -67,7 +67,7 @@ func TestDueItemsAndAdaptiveState(t *testing.T) {
 	if got.Stability != 2 || got.BktAlpha != 3 || got.ExposurePhase != "recall" {
 		t.Fatalf("got %+v", got)
 	}
-	if err := InsertReviewLog(db, &ReviewLog{WordID: got.ID, Rating: 2, Stability: 2}); err != nil {
+	if err := InsertReviewLog(db, &ReviewLog{WordID: got.ID, Rating: 2, Outcome: "success", Stability: 2}); err != nil {
 		t.Fatal(err)
 	}
 	var events int

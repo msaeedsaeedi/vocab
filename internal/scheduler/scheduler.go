@@ -10,11 +10,12 @@ import (
 
 const hoursPerDay = 24.0
 
-func ScheduleReview(db *database.DB, w *word.Word, rating int) (float64, error) {
+func ScheduleReview(db *database.DB, w *word.Word, rating int, outcome string) (float64, error) {
 	elapsed := elapsedHours(w.LastReviewed)
 	logEntry := &word.ReviewLog{
 		WordID:       w.ID,
 		Rating:       rating,
+		Outcome:      outcome,
 		ElapsedHours: elapsed,
 		Stability:    w.Stability,
 	}
@@ -29,13 +30,13 @@ func ScheduleReview(db *database.DB, w *word.Word, rating int) (float64, error) 
 		beta:       w.BktBeta,
 	}
 
-	state.update(rating, elapsed/hoursPerDay)
+	state.update(rating, outcome, elapsed/hoursPerDay)
 
-	nextDueDays := state.nextInterval(rating)
+	nextDueDays := state.nextInterval(rating, outcome)
 	nextDue := time.Now().Add(time.Duration(nextDueDays*24) * time.Hour).Format("2006-01-02 15:04:05")
 
 	lapseCount := w.LapseCount
-	if rating < 2 {
+	if outcome == "failure" || outcome == "struggle" {
 		lapseCount++
 	}
 
@@ -58,7 +59,12 @@ type memoryState struct {
 	beta       float64
 }
 
-func (m *memoryState) update(rating int, elapsedDays float64) {
+func (m *memoryState) update(rating int, outcome string, elapsedDays float64) {
+	if outcome == "missed" {
+		m.difficulty = math.Min(1.0, m.difficulty+0.03)
+		return
+	}
+
 	if rating >= 2 {
 		m.alpha += 1.0
 	} else {
@@ -84,7 +90,10 @@ func (m *memoryState) update(rating int, elapsedDays float64) {
 	}
 }
 
-func (m *memoryState) nextInterval(rating int) float64 {
+func (m *memoryState) nextInterval(rating int, outcome string) float64 {
+	if outcome == "missed" {
+		return 0.042
+	}
 	if rating == 0 {
 		return 0.25
 	}

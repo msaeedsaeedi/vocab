@@ -55,7 +55,7 @@ func TestBktSkill(t *testing.T) {
 func TestMemoryStateUpdate(t *testing.T) {
 	m := &memoryState{stability: 1.0, difficulty: 0.3, alpha: 1.0, beta: 1.0}
 
-	m.update(2, 1.0)
+	m.update(2, "success", 1.0)
 	if m.alpha != 2.0 {
 		t.Errorf("correct answer: alpha should increment, got %f", m.alpha)
 	}
@@ -67,7 +67,7 @@ func TestMemoryStateUpdate(t *testing.T) {
 func TestMemoryStateForgot(t *testing.T) {
 	m := &memoryState{stability: 5.0, difficulty: 0.3, alpha: 5.0, beta: 1.0}
 
-	m.update(0, 5.0)
+	m.update(0, "failure", 5.0)
 	if m.beta != 2.0 {
 		t.Errorf("forgot: beta should increment, got %f", m.beta)
 	}
@@ -82,10 +82,10 @@ func TestMemoryStateForgot(t *testing.T) {
 func TestNextInterval(t *testing.T) {
 	m := &memoryState{stability: 2.0, difficulty: 0.3, alpha: 3, beta: 1}
 
-	if got := m.nextInterval(0); got != 0.25 {
+	if got := m.nextInterval(0, "failure"); got != 0.25 {
 		t.Errorf("rating 0: interval should be 0.25, got %f", got)
 	}
-	if got := m.nextInterval(3); got <= m.nextInterval(2) {
+	if got := m.nextInterval(3, "success"); got <= m.nextInterval(2, "success") {
 		t.Errorf("rating 3 interval should be >= rating 2 interval")
 	}
 }
@@ -111,7 +111,7 @@ func TestScheduleReviewCorrect(t *testing.T) {
 		t.Fatalf("get word: %v", err)
 	}
 
-	days, err := ScheduleReview(db, w, 2)
+	days, err := ScheduleReview(db, w, 2, "success")
 	if err != nil {
 		t.Fatalf("schedule review: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestScheduleReviewForgot(t *testing.T) {
 		t.Fatalf("get word: %v", err)
 	}
 
-	days, err := ScheduleReview(db, w, 0)
+	days, err := ScheduleReview(db, w, 0, "failure")
 	if err != nil {
 		t.Fatalf("schedule review: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestSelectNextWord(t *testing.T) {
 func TestScheduleReviewNonExistent(t *testing.T) {
 	db := newTestDB(t)
 	w := &word.Word{ID: 999, Stability: 1.0, Difficulty: 0.3, BktAlpha: 1, BktBeta: 1}
-	_, err := ScheduleReview(db, w, 2)
+	_, err := ScheduleReview(db, w, 2, "success")
 	if err != nil {
 		t.Fatalf("expected no error for non-existent word (idempotent), got: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestMemoryStateConverges(t *testing.T) {
 	m := &memoryState{stability: 1.0, difficulty: 0.5, alpha: 1.0, beta: 1.0}
 
 	for i := 0; i < 10; i++ {
-		m.update(3, m.stability)
+		m.update(3, "success", m.stability)
 		if m.stability > 100 {
 			break
 		}
