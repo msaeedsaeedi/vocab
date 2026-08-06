@@ -17,7 +17,7 @@ func newTestDB(t *testing.T) *database.DB {
 }
 
 func item(id string, due string) Word {
-	return Word{LexemeID: id, DatasetVersion: "0.4.0", NextDue: due}
+	return Word{LexemeID: id, DatasetVersion: "0.4.0", NextDue: due + " 00:00:00"}
 }
 
 func TestInsertStoresOnlyLearnerReference(t *testing.T) {

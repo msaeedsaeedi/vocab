@@ -365,7 +365,7 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 		log.Printf("adaptive: window=%d-%d words/day=%d gap=%dm",
 			dayStart, dayEnd, wordsPerDay, interWordMins)
 
-		dueWords, err := word.GetDueWords(db, now.Format("2006-01-02"))
+		dueWords, err := word.GetDueWords(db, now.Format("2006-01-02 15:04:05"))
 		if err != nil {
 			log.Printf("get due words: %v", err)
 			sleepDevContext(ctx, 30*time.Minute)
@@ -375,7 +375,7 @@ func runDaemon(ctx context.Context, db *database.DB, wordList *words.List) {
 			if err := introduceItems(db, wordList, wordsPerDay); err != nil {
 				log.Printf("introduce learner items: %v", err)
 			}
-			dueWords, err = word.GetDueWords(db, now.Format("2006-01-02"))
+			dueWords, err = word.GetDueWords(db, now.Format("2006-01-02 15:04:05"))
 			if err != nil {
 				log.Printf("refresh introduced items: %v", err)
 				continue
@@ -547,7 +547,7 @@ func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w w
 				continue
 			}
 
-			if current.NextDue > time.Now().Format("2006-01-02") {
+			if current.NextDue > time.Now().Format("2006-01-02 15:04:05") {
 				log.Printf("word %d reviewed (next_due=%s)", w.ID, current.NextDue)
 				tr.RecordEngagement()
 				tr.ClearCurrentWord()
@@ -634,7 +634,7 @@ func introduceItems(db *database.DB, wordList *words.List, count int) error {
 		if !ok {
 			continue
 		}
-		item := word.Word{LexemeID: entry.LexemeID, NextDue: "1970-01-01"}
+		item := word.Word{LexemeID: entry.LexemeID, NextDue: "1970-01-01 00:00:00"}
 		if err := word.Insert(db, &item); err != nil {
 			return err
 		}
@@ -654,9 +654,12 @@ func findNextDue(db *database.DB) time.Time {
 	if err != nil || nextDue == "" {
 		return time.Time{}
 	}
-	t, err := time.Parse("2006-01-02", nextDue)
+	t, err := time.Parse("2006-01-02 15:04:05", nextDue)
 	if err != nil {
-		return time.Time{}
+		t, err = time.Parse("2006-01-02", nextDue)
+		if err != nil {
+			return time.Time{}
+		}
 	}
 	return t
 }

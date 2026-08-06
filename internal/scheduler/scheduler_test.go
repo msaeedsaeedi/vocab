@@ -21,7 +21,7 @@ func newTestDB(t *testing.T) *database.DB {
 
 func insertTestWord(db *database.DB, id int64, stability, difficulty float64) {
 	db.Exec(`INSERT INTO learning_items (id, lexeme_id, dataset_version, box, next_due, stability, difficulty)
-		VALUES (?, ?, '0.4.0', 0, '2026-01-01', ?, ?)`, id, "test", stability, difficulty)
+		VALUES (?, ?, '0.4.0', 0, '2026-01-01 00:00:00', ?, ?)`, id, "test", stability, difficulty)
 }
 
 func TestRecallProbability(t *testing.T) {
@@ -169,7 +169,7 @@ func TestScheduleReviewForgot(t *testing.T) {
 }
 
 func TestSelectNextWord(t *testing.T) {
-	now := time.Now().Format("2006-01-02")
+	now := time.Now().Format("2006-01-02 15:04:05")
 	words := []word.Word{
 		{ID: 1, NextDue: now, Stability: 10.0, Difficulty: 0.1, BktAlpha: 10, BktBeta: 1},
 		{ID: 2, NextDue: now, Stability: 0.5, Difficulty: 0.8, BktAlpha: 2, BktBeta: 8},

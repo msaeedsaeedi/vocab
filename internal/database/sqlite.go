@@ -6,12 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 type DB struct {
 	*sql.DB
@@ -73,15 +74,31 @@ func (d *DB) migrate(path string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(schema); err != nil {
-		migrateErr := fmt.Errorf("apply schema: %w", err)
-		if backup != "" {
-			if restoreErr := restoreBackup(path, backup); restoreErr != nil {
-				return fmt.Errorf("%w (backup restore also failed: %v)", migrateErr, restoreErr)
+
+	if version < 1 {
+		if _, err := tx.Exec(schemaV1); err != nil {
+			migrateErr := fmt.Errorf("apply v1 schema: %w", err)
+			if backup != "" {
+				if restoreErr := restoreBackup(path, backup); restoreErr != nil {
+					return fmt.Errorf("%w (backup restore also failed: %v)", migrateErr, restoreErr)
+				}
 			}
+			return migrateErr
 		}
-		return migrateErr
 	}
+
+	if version < 2 {
+		if err := migrateV2(tx); err != nil {
+			migrateErr := fmt.Errorf("apply v2 migration: %w", err)
+			if backup != "" {
+				if restoreErr := restoreBackup(path, backup); restoreErr != nil {
+					return fmt.Errorf("%w (backup restore also failed: %v)", migrateErr, restoreErr)
+				}
+			}
+			return migrateErr
+		}
+	}
+
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", currentSchemaVersion)); err != nil {
 		return fmt.Errorf("write schema version: %w", err)
 	}
@@ -134,7 +151,7 @@ func copyFile(source, destination string) error {
 	return closeErr
 }
 
-const schema = `
+const schemaV1 = `
 CREATE TABLE IF NOT EXISTS learning_items (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     lexeme_id     TEXT    NOT NULL,
@@ -189,3 +206,27 @@ CREATE TABLE IF NOT EXISTS daemon_state (
     value TEXT NOT NULL
 );
 `
+
+func migrateV2(tx *sql.Tx) error {
+	if _, err := tx.Exec(`UPDATE learning_items SET next_due = next_due || ' 00:00:00' WHERE length(next_due) = 10`); err != nil {
+		return fmt.Errorf("convert next_due to datetime: %w", err)
+	}
+
+	for _, alter := range []string{
+		`ALTER TABLE review_events ADD COLUMN outcome TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE engagement ADD COLUMN notifications_sent INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE engagement ADD COLUMN notifications_answered INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := tx.Exec(alter); err != nil {
+			if !isDuplicateColumn(err) {
+				return fmt.Errorf("v2 migration: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func isDuplicateColumn(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
+}

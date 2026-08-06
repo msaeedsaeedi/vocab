@@ -32,7 +32,7 @@ func ScheduleReview(db *database.DB, w *word.Word, rating int) (float64, error) 
 	state.update(rating, elapsed/hoursPerDay)
 
 	nextDueDays := state.nextInterval(rating)
-	nextDue := time.Now().Add(time.Duration(nextDueDays*24) * time.Hour).Format("2006-01-02")
+	nextDue := time.Now().Add(time.Duration(nextDueDays*24) * time.Hour).Format("2006-01-02 15:04:05")
 
 	lapseCount := w.LapseCount
 	if rating < 2 {
@@ -144,9 +144,12 @@ func SelectNextWord(db *database.DB, dueWords []word.Word) *word.Word {
 }
 
 func parseDueDate(nextDue string) time.Time {
-	t, err := time.Parse("2006-01-02", nextDue)
+	t, err := time.Parse("2006-01-02 15:04:05", nextDue)
 	if err != nil {
-		return time.Now()
+		t, err = time.Parse("2006-01-02", nextDue)
+		if err != nil {
+			return time.Now()
+		}
 	}
 	return t
 }
