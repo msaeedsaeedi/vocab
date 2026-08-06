@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"math"
+	"math/rand/v2"
+	"sort"
 	"time"
 
 	"github.com/msaeedsaeedi/vocab/internal/database"
@@ -117,12 +119,13 @@ func BktSkill(alpha, beta float64) float64 {
 
 func Priority(w *word.Word, overdueHours float64) float64 {
 	recall := RecallProbability(w.Stability, overdueHours)
-	skill := BktSkill(w.BktAlpha, w.BktBeta)
-	overdueFactor := math.Min(overdueHours/(72.0), 1.0)
-
-	difficultyWeight := 0.3 + w.Difficulty*0.2
-
-	return (1.0-recall)*0.35 + (1.0-skill)*0.25 + overdueFactor*0.15 + difficultyWeight*0.25
+	targetRecall := 0.85
+	recallNeed := targetRecall - recall
+	if recallNeed <= 0 {
+		return 0
+	}
+	importance := 1.0 + w.Difficulty*0.5
+	return recallNeed * importance
 }
 
 func SelectNextWord(db *database.DB, dueWords []word.Word) *word.Word {
@@ -134,22 +137,28 @@ func SelectNextWord(db *database.DB, dueWords []word.Word) *word.Word {
 	}
 
 	now := time.Now()
-	bestIdx := 0
-	bestScore := -1.0
-
-	for i, w := range dueWords {
-		overdue := now.Sub(parseDueDate(w.NextDue)).Hours()
+	type scored struct {
+		idx   int
+		score float64
+	}
+	candidates := make([]scored, len(dueWords))
+	for i := range dueWords {
+		overdue := now.Sub(parseDueDate(dueWords[i].NextDue)).Hours()
 		if overdue < 0 {
 			overdue = 0
 		}
-		score := Priority(&dueWords[i], overdue)
-		if score > bestScore {
-			bestScore = score
-			bestIdx = i
-		}
+		candidates[i] = scored{idx: i, score: Priority(&dueWords[i], overdue)}
 	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
 
-	return &dueWords[bestIdx]
+	topN := 3
+	if topN > len(candidates) {
+		topN = len(candidates)
+	}
+	pick := candidates[rand.IntN(topN)]
+	return &dueWords[pick.idx]
 }
 
 func parseDueDate(nextDue string) time.Time {

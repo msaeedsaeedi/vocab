@@ -91,14 +91,18 @@ func TestNextInterval(t *testing.T) {
 }
 
 func TestPriority(t *testing.T) {
-	hardWord := word.Word{Stability: 0.5, Difficulty: 0.8, BktAlpha: 2, BktBeta: 8}
-	easyWord := word.Word{Stability: 10.0, Difficulty: 0.1, BktAlpha: 10, BktBeta: 1}
+	hardWord := word.Word{Stability: 0.5, Difficulty: 0.8}
+	easyWord := word.Word{Stability: 10.0, Difficulty: 0.1}
 
 	hardScore := Priority(&hardWord, 12)
 	easyScore := Priority(&easyWord, 12)
 
 	if hardScore <= easyScore {
 		t.Errorf("hard/unstable word should have higher priority (hard=%.3f easy=%.3f)", hardScore, easyScore)
+	}
+
+	if Priority(&easyWord, 0) != 0 {
+		t.Errorf("word at target recall should have zero priority")
 	}
 }
 
@@ -171,17 +175,21 @@ func TestScheduleReviewForgot(t *testing.T) {
 func TestSelectNextWord(t *testing.T) {
 	now := time.Now().Format("2006-01-02 15:04:05")
 	words := []word.Word{
-		{ID: 1, NextDue: now, Stability: 10.0, Difficulty: 0.1, BktAlpha: 10, BktBeta: 1},
-		{ID: 2, NextDue: now, Stability: 0.5, Difficulty: 0.8, BktAlpha: 2, BktBeta: 8},
-		{ID: 3, NextDue: now, Stability: 2.0, Difficulty: 0.4, BktAlpha: 5, BktBeta: 3},
+		{ID: 1, NextDue: now, Stability: 10.0, Difficulty: 0.1},
+		{ID: 2, NextDue: now, Stability: 0.5, Difficulty: 0.8},
+		{ID: 3, NextDue: now, Stability: 2.0, Difficulty: 0.4},
 	}
 
-	selected := SelectNextWord(nil, words)
-	if selected == nil {
-		t.Fatal("expected non-nil result")
+	seen := make(map[int64]bool)
+	for i := 0; i < 20; i++ {
+		selected := SelectNextWord(nil, words)
+		if selected == nil {
+			t.Fatal("expected non-nil result")
+		}
+		seen[selected.ID] = true
 	}
-	if selected.ID != 2 {
-		t.Errorf("expected word 2 (hardest/most urgent), got %d", selected.ID)
+	if !seen[2] {
+		t.Error("word 2 (hardest) should be in the random top-3 band at least once")
 	}
 
 	var single []word.Word
@@ -205,7 +213,7 @@ func TestScheduleReviewNonExistent(t *testing.T) {
 }
 
 func TestPriorityOverdueBias(t *testing.T) {
-	w := word.Word{Stability: 2.0, Difficulty: 0.3, BktAlpha: 5, BktBeta: 2}
+	w := word.Word{Stability: 2.0, Difficulty: 0.3}
 	normal := Priority(&w, 2)
 	overdue := Priority(&w, 100)
 
@@ -250,7 +258,7 @@ func TestBktSkillMonotonic(t *testing.T) {
 }
 
 func TestPriorityDeterministic(t *testing.T) {
-	w := word.Word{Stability: 3.0, Difficulty: 0.3, BktAlpha: 4, BktBeta: 2}
+	w := word.Word{Stability: 3.0, Difficulty: 0.3}
 	a := Priority(&w, 5)
 	b := Priority(&w, 5)
 	if math.Abs(a-b) > 0.0001 {
