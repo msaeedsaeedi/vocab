@@ -165,6 +165,7 @@ func handleReviewCommand(db *database.DB, id int64, knewDeprecated bool, ratingF
 	}
 
 	tr.RecordEngagement()
+	tr.RecordNotificationAnswered()
 	log.Printf("review: recorded id=%d rating=%d", id, r)
 	return nil
 }
@@ -560,6 +561,7 @@ func phaseRecall(ctx context.Context, db *database.DB, tr *engage.Tracker, w wor
 	}
 	log.Print("recall notification sent")
 	tr.PutLastNotificationTime(time.Now())
+	tr.RecordNotificationSent()
 
 	return waitForReview(ctx, db, tr, w)
 }
@@ -599,6 +601,7 @@ func waitForReview(ctx context.Context, db *database.DB, tr *engage.Tracker, w w
 			if current.NextDue > time.Now().Format("2006-01-02 15:04:05") {
 				log.Printf("word %d reviewed (next_due=%s)", w.ID, current.NextDue)
 				tr.RecordEngagement()
+				tr.RecordNotificationAnswered()
 				tr.ClearCurrentWord()
 				return nil
 			}
@@ -786,6 +789,8 @@ func phaseProduce(ctx context.Context, db *database.DB, tr *engage.Tracker, w wo
 		return err
 	}
 	log.Print("produce notification sent")
+	tr.PutLastNotificationTime(time.Now())
+	tr.RecordNotificationSent()
 
 	return waitForProduce(ctx, db, tr, w)
 }

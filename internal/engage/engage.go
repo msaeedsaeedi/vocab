@@ -35,6 +35,20 @@ func (t *Tracker) RecordEngagement() {
 	t.setHourStats(hour, s, n)
 }
 
+func (t *Tracker) RecordNotificationSent() {
+	hour := time.Now().Hour()
+	sent, answered := t.notificationStats(hour)
+	sent++
+	t.setNotificationStats(hour, sent, answered)
+}
+
+func (t *Tracker) RecordNotificationAnswered() {
+	hour := time.Now().Hour()
+	sent, answered := t.notificationStats(hour)
+	answered++
+	t.setNotificationStats(hour, sent, answered)
+}
+
 func (t *Tracker) hourStats(hour int) (float64, int) {
 	var score float64
 	var count int
@@ -54,6 +68,27 @@ func (t *Tracker) setHourStats(hour int, score float64, count int) {
 		hour, score, count, score, count,
 	); err != nil {
 		log.Printf("engage: setHourStats: %v", err)
+	}
+}
+
+func (t *Tracker) notificationStats(hour int) (sent, answered int) {
+	err := t.db.QueryRow(
+		`SELECT notifications_sent, notifications_answered FROM engagement WHERE hour = ?`, hour,
+	).Scan(&sent, &answered)
+	if err != nil {
+		return 0, 0
+	}
+	return sent, answered
+}
+
+func (t *Tracker) setNotificationStats(hour int, sent, answered int) {
+	if _, err := t.db.Exec(
+		`INSERT INTO engagement (hour, score, sample_count, notifications_sent, notifications_answered)
+		 VALUES (?, 0, 0, ?, ?)
+		 ON CONFLICT(hour) DO UPDATE SET notifications_sent = ?, notifications_answered = ?`,
+		hour, sent, answered, sent, answered,
+	); err != nil {
+		log.Printf("engage: setNotificationStats: %v", err)
 	}
 }
 
@@ -143,16 +178,39 @@ func (t *Tracker) BestNotificationHour(wordPhase string) int {
 func (t *Tracker) hourlyScores() [24]float64 {
 	var scores [24]float64
 
-	rows, err := t.db.Query(`SELECT hour, score FROM engagement`)
+	rows, err := t.db.Query(`SELECT hour, notifications_sent, notifications_answered FROM engagement`)
 	if err != nil {
 		return scores
 	}
 	defer rows.Close()
 
+	hasNotifData := false
 	for rows.Next() {
+		var h, sent, answered int
+		if err := rows.Scan(&h, &sent, &answered); err != nil || h < 0 || h >= 24 {
+			continue
+		}
+		total := sent + answered
+		if total > 0 {
+			hasNotifData = true
+			scores[h] = float64(answered+2) / float64(sent+4)
+		}
+	}
+
+	if hasNotifData {
+		return scores
+	}
+
+	rows2, err := t.db.Query(`SELECT hour, score FROM engagement`)
+	if err != nil {
+		return scores
+	}
+	defer rows2.Close()
+
+	for rows2.Next() {
 		var h int
 		var s float64
-		if rows.Scan(&h, &s) == nil && h >= 0 && h < 24 {
+		if rows2.Scan(&h, &s) == nil && h >= 0 && h < 24 {
 			scores[h] = s
 		}
 	}
