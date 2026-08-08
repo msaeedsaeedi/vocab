@@ -24,7 +24,7 @@ linters:
           - errcheck
         path: _test\.go
     paths:
-      - data
+      - ^data(/|$)
       - third_party$
       - builtin$
       - examples$
@@ -37,7 +37,7 @@ formatters:
   exclusions:
     generated: lax
     paths:
-      - data
+      - ^data(/|$)
       - third_party$
       - builtin$
       - examples$

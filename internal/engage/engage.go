@@ -222,12 +222,6 @@ func (t *Tracker) hourlyScores() [24]float64 {
 		}
 	}
 
-	if allZero(scores) {
-		for i := defaultActiveStart; i <= defaultActiveEnd; i++ {
-			scores[i] = 0.5
-		}
-	}
-
 	return scores
 }
 
@@ -279,15 +273,6 @@ func activeThreshold(scores [24]float64) float64 {
 		return 0.5
 	}
 	return (sum / float64(count)) * 0.4
-}
-
-func allZero(scores [24]float64) bool {
-	for _, s := range scores {
-		if s > 0 {
-			return false
-		}
-	}
-	return true
 }
 
 func clamp(v, lo, hi int) int {

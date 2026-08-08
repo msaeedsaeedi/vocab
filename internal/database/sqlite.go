@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,7 +74,11 @@ func (d *DB) migrate(path string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf("database: rollback migration: %v", err)
+		}
+	}()
 
 	if version < 1 {
 		if _, err := tx.Exec(schemaV1); err != nil {

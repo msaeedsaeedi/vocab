@@ -4,6 +4,7 @@
 package state
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"strconv"
@@ -132,7 +133,11 @@ func (s *Store) setCurrentWord(id int64, phase string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf("state: rollback current word: %v", err)
+		}
+	}()
 
 	if _, err := tx.Exec(
 		`INSERT INTO daemon_state (key, value) VALUES (?, ?)
