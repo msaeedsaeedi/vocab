@@ -13,7 +13,12 @@ run: build
 	./$(BINARY)
 
 test:
-	GOCACHE=$(GOCACHE) go test ./... -v -race -count=1
+	@if [ "$$(go env CGO_ENABLED)" = "1" ]; then \
+		GOCACHE=$(GOCACHE) go test ./... -v -race -count=1; \
+	else \
+		echo "cgo unavailable: -race requires cgo; running tests without -race"; \
+		GOCACHE=$(GOCACHE) go test ./... -v -count=1; \
+	fi
 
 LINT_BIN=$(shell go env GOPATH)/bin/golangci-lint
 
@@ -30,5 +35,10 @@ clean:
 	rm -f coverage.out
 
 coverage:
-	GOCACHE=$(GOCACHE) go test ./... -race -count=1 -coverprofile=coverage.out
+	@if [ "$$(go env CGO_ENABLED)" = "1" ]; then \
+		GOCACHE=$(GOCACHE) go test ./... -race -count=1 -coverprofile=coverage.out; \
+	else \
+		echo "cgo unavailable: -race requires cgo; running coverage without -race"; \
+		GOCACHE=$(GOCACHE) go test ./... -count=1 -coverprofile=coverage.out; \
+	fi
 	go tool cover -html=coverage.out -o coverage.html

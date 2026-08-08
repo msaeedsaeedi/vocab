@@ -173,7 +173,11 @@ func main() {
 			},
 			Quit: stop,
 		})
-		defer restoreWallpaper()
+		defer func() {
+			if err := restoreWallpaper(); err != nil {
+				log.Printf("restore wallpaper: %v", err)
+			}
+		}()
 	}
 
 	wordList := words.LoadSeed()
