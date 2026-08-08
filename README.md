@@ -156,11 +156,15 @@ Reports stay on your computer until you choose to attach them. They include rece
 
 ## Development
 
+New to the repo? See [CONTRIBUTING.md](CONTRIBUTING.md) for the exact toolchain setup and contributing workflow.
+
+Key requirement: install a **complete Go toolchain (1.25+)** from [go.dev](https://go.dev/dl/) and a C compiler. Auto-downloaded Go toolchain modules omit the `covdata` tool, which breaks `go test -cover` for packages with no test files; cgo is needed for `-race` tests.
+
 ```powershell
 make build          # Build for Linux (cross-platform dev)
 make build-windows  # Cross-compile for Windows
-make test           # Run all tests
-make lint           # Run golangci-lint
+make test           # Run all tests (-race when cgo is available)
+make lint           # Run golangci-lint (v2 config)
 make coverage       # Test coverage report
 make clean          # Remove binaries
 ```
