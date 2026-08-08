@@ -5,10 +5,12 @@ import (
 	"embed"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"html/template"
 	"image"
 	_ "image/jpeg"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -41,7 +43,6 @@ type tmplData struct {
 	Pos        string
 }
 
-// TODO: Highlight word in the example sentence. (It may need to update beneath data structure to include the highlighted word's position in the example sentence.)
 var pageTmpl = template.Must(template.New("wallpaper").Parse(
 	`<div style="position:relative;width:{{.Width}}px;height:{{.Height}}px;">` +
 		`<img src="{{.BgImage}}" style="position:absolute;top:0;left:0;width:100%;height:100%;" />` +
@@ -95,7 +96,7 @@ func ensureRenderer() error {
 				log.Print(initErr)
 				return
 			}
-			if err := renderer.LoadFont(ogre.FontSource{Name: f.name, Data: data}); err != nil {
+			if err := renderer.LoadFont(ogre.FontSource{Name: f.name, Weight: 400, Style: "normal", Data: data}); err != nil {
 				initErr = fmt.Errorf("load font %s: %w", f.name, err)
 				log.Print(initErr)
 				return
@@ -130,7 +131,7 @@ func render(w wordData, width, height int) (image.Image, error) {
 		BgImage:    bgURI,
 		Text:       w.text,
 		Definition: w.definition,
-		Example:    template.HTML(w.example),
+		Example:    highlightExample(w.example, w.text),
 		Pos:        w.pos,
 	}
 
@@ -153,4 +154,24 @@ func render(w wordData, width, height int) (image.Image, error) {
 		return nil, fmt.Errorf("decode ogre output: %w", err)
 	}
 	return img, nil
+}
+
+func highlightExample(example, word string) template.HTML {
+	escaped := html.EscapeString(example)
+	if word == "" {
+		return template.HTML(escaped)
+	}
+
+	pattern := `(?i)\b` + regexp.QuoteMeta(html.EscapeString(word)) + `\b`
+	re := regexp.MustCompile(pattern)
+	const open = `<span style="font-family:Inter-MediumItalic;color:#f2f3f4">`
+	const close = `</span>`
+	highlighted := re.ReplaceAllStringFunc(escaped, func(match string) string {
+		return open + match + close
+	})
+	// ogre trims text at inline-element boundaries; keep spaces on either side
+	// of a highlighted match with a zero-width separator.
+	highlighted = strings.ReplaceAll(highlighted, " "+open, " \u200b"+open)
+	highlighted = strings.ReplaceAll(highlighted, close+" ", close+"\u200b ")
+	return template.HTML(highlighted)
 }
