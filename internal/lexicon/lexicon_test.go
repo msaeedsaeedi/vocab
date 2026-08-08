@@ -1,4 +1,4 @@
-package words
+package lexicon
 
 import (
 	"slices"

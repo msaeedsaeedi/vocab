@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/msaeedsaeedi/vocab/internal/apppaths"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -126,7 +127,7 @@ func Restore() error {
 	if err != nil {
 		return fmt.Errorf("read current wallpaper: %w", err)
 	}
-	vocabPath, err := wallpaperPath()
+	vocabPath, err := apppaths.WallpaperImagePath()
 	if err != nil {
 		return err
 	}
@@ -187,11 +188,11 @@ func currentWallpaper() (string, error) {
 }
 
 func backupPath() string {
-	home, err := os.UserHomeDir()
+	dir, err := apppaths.DataDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, "AppData", "Roaming", "vocab", "wallpaper-backup.json")
+	return filepath.Join(dir, "wallpaper-backup.json")
 }
 
 func saveBackup() error {

@@ -7,6 +7,10 @@ import (
 	"github.com/msaeedsaeedi/vocab/internal/database"
 )
 
+// TimeLayout is the canonical SQLite timestamp format used across the data
+// layer, the scheduler, and the daemon.
+const TimeLayout = "2006-01-02 15:04:05"
+
 type Word struct {
 	ID             int64  `json:"id"`
 	LexemeID       string `json:"lexeme_id"`
@@ -55,24 +59,6 @@ func Insert(db *database.DB, w *Word) error {
 		return fmt.Errorf("last insert id: %w", err)
 	}
 	w.ID = id
-	return nil
-}
-
-func UpdateFeedback(db *database.DB, id int64, box int, nextDue string) error {
-	res, err := db.Exec(
-		`UPDATE learning_items SET box = ?, next_due = ? WHERE id = ?`,
-		box, nextDue, id,
-	)
-	if err != nil {
-		return fmt.Errorf("update word: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("word %d not found", id)
-	}
 	return nil
 }
 
@@ -139,12 +125,6 @@ func GetDueWords(db *database.DB, today string) ([]Word, error) {
 	return scanWords(rows)
 }
 
-func GetDueWordCount(db *database.DB, today string) (int, error) {
-	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM learning_items WHERE next_due <= ?`, today).Scan(&n)
-	return n, err
-}
-
 func GetNextDue(db *database.DB) (string, error) {
 	var nextDue string
 	err := db.QueryRow(
@@ -165,18 +145,6 @@ func GetAll(db *database.DB) ([]Word, error) {
 	}
 	defer rows.Close()
 	return scanWords(rows)
-}
-
-func Count(db *database.DB) (int, error) {
-	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM learning_items`).Scan(&n)
-	return n, err
-}
-
-func CountDue(db *database.DB, today string) (int, error) {
-	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM learning_items WHERE next_due <= ?`, today).Scan(&n)
-	return n, err
 }
 
 func scanWords(rows *sql.Rows) ([]Word, error) {

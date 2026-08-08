@@ -35,7 +35,7 @@ func ScheduleReview(db *database.DB, w *word.Word, rating int, outcome string) (
 	state.update(rating, outcome, elapsed/hoursPerDay)
 
 	nextDueDays := state.nextInterval(rating, outcome)
-	nextDue := time.Now().Add(time.Duration(nextDueDays*24) * time.Hour).Format("2006-01-02 15:04:05")
+	nextDue := time.Now().Add(time.Duration(nextDueDays*24) * time.Hour).Format(word.TimeLayout)
 
 	lapseCount := w.LapseCount
 	if outcome == "failure" || outcome == "struggle" {
@@ -45,7 +45,7 @@ func ScheduleReview(db *database.DB, w *word.Word, rating int, outcome string) (
 	if err := word.UpdateAdaptive(db, w.ID,
 		state.stability, state.difficulty, state.alpha, state.beta,
 		w.ReviewCount+1, lapseCount,
-		time.Now().Format("2006-01-02 15:04:05"),
+		time.Now().Format(word.TimeLayout),
 		nextDue, "",
 	); err != nil {
 		return 0, err
@@ -128,7 +128,7 @@ func Priority(w *word.Word, overdueHours float64) float64 {
 	return recallNeed * importance
 }
 
-func SelectNextWord(db *database.DB, dueWords []word.Word) *word.Word {
+func SelectNextWord(dueWords []word.Word) *word.Word {
 	if len(dueWords) == 0 {
 		return nil
 	}
@@ -162,7 +162,7 @@ func SelectNextWord(db *database.DB, dueWords []word.Word) *word.Word {
 }
 
 func parseDueDate(nextDue string) time.Time {
-	t, err := time.Parse("2006-01-02 15:04:05", nextDue)
+	t, err := time.Parse(word.TimeLayout, nextDue)
 	if err != nil {
 		t, err = time.Parse("2006-01-02", nextDue)
 		if err != nil {
@@ -176,7 +176,7 @@ func elapsedHours(lastReviewed string) float64 {
 	if lastReviewed == "" {
 		return 0
 	}
-	t, err := time.Parse("2006-01-02 15:04:05", lastReviewed)
+	t, err := time.Parse(word.TimeLayout, lastReviewed)
 	if err != nil {
 		t, err = time.Parse("2006-01-02", lastReviewed)
 		if err != nil {

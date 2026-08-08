@@ -26,9 +26,10 @@ type wordData struct {
 	pos        string
 }
 
-func defaultSize() (int, int) {
-	return 1920, 1080
-}
+const (
+	defaultWidth  = 1920
+	defaultHeight = 1080
+)
 
 type tmplData struct {
 	Width      int
@@ -61,6 +62,7 @@ var (
 	renderer *ogre.Renderer
 )
 
+// ensureRenderer lazily loads the embedded fonts and constructs the renderer.
 func ensureRenderer() error {
 	initOnce.Do(func() {
 		renderer = ogre.NewRenderer()
@@ -103,9 +105,14 @@ func ensureRenderer() error {
 	return initErr
 }
 
+// render lays out w over the embedded background and returns the resulting
+// image. width and height are expected to be positive.
 func render(w wordData, width, height int) (image.Image, error) {
-	if width <= 0 || height <= 0 {
-		width, height = defaultSize()
+	if width <= 0 {
+		width = defaultWidth
+	}
+	if height <= 0 {
+		height = defaultHeight
 	}
 	if err := ensureRenderer(); err != nil {
 		return nil, err

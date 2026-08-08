@@ -1,11 +1,16 @@
+// Package engage adapts the learning cadence to when the user actually answers.
+// It observes engagement per hour of the day, and derives the active window and
+// the number of words to present per day.
 package engage
 
 import (
 	"log"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/msaeedsaeedi/vocab/internal/database"
+	"github.com/msaeedsaeedi/vocab/internal/state"
 )
 
 const (
@@ -16,17 +21,26 @@ const (
 	minInterWordMins     = 45
 	maxWordsPerDay       = 8
 	minWordsPerDay       = 1
-	responseWindowHours  = 4
 )
 
+// Setting keys persisted in the settings table.
+const (
+	settingWordsPerDay = "words_per_day"
+)
+
+// Tracker records engagement observations and derives adaptive settings.
 type Tracker struct {
-	db *database.DB
+	db    *database.DB
+	store *state.Store
 }
 
-func New(db *database.DB) *Tracker {
-	return &Tracker{db: db}
+// New returns a Tracker that records into db and persists adaptive settings
+// through store.
+func New(db *database.DB, store *state.Store) *Tracker {
+	return &Tracker{db: db, store: store}
 }
 
+// RecordEngagement counts one answered prompt in the current hour.
 func (t *Tracker) RecordEngagement() {
 	hour := time.Now().Hour()
 	s, n := t.hourStats(hour)
@@ -35,6 +49,7 @@ func (t *Tracker) RecordEngagement() {
 	t.setHourStats(hour, s, n)
 }
 
+// RecordNotificationSent counts one notification sent in the current hour.
 func (t *Tracker) RecordNotificationSent() {
 	hour := time.Now().Hour()
 	sent, answered := t.notificationStats(hour)
@@ -42,11 +57,26 @@ func (t *Tracker) RecordNotificationSent() {
 	t.setNotificationStats(hour, sent, answered)
 }
 
+// RecordNotificationAnswered counts one notification answered in the current hour.
 func (t *Tracker) RecordNotificationAnswered() {
 	hour := time.Now().Hour()
 	sent, answered := t.notificationStats(hour)
 	answered++
 	t.setNotificationStats(hour, sent, answered)
+}
+
+// PutLastWordTime records when the last word was presented.
+func (t *Tracker) PutLastWordTime(tm time.Time) {
+	if err := t.store.SetSetting("last_word_time", tm.Format(time.RFC3339)); err != nil {
+		log.Printf("engage: PutLastWordTime: %v", err)
+	}
+}
+
+// PutLastNotificationTime records when the last notification was sent.
+func (t *Tracker) PutLastNotificationTime(tm time.Time) {
+	if err := t.store.SetSetting("last_notify_time", tm.Format(time.RFC3339)); err != nil {
+		log.Printf("engage: PutLastNotificationTime: %v", err)
+	}
 }
 
 func (t *Tracker) hourStats(hour int) (float64, int) {
@@ -92,6 +122,8 @@ func (t *Tracker) setNotificationStats(hour int, sent, answered int) {
 	}
 }
 
+// ActiveWindow returns the [start, end) hours of day when the user is most
+// engaged, falling back to the defaults when there is not enough signal.
 func (t *Tracker) ActiveWindow() (start, end int) {
 	scores := t.hourlyScores()
 
@@ -126,53 +158,28 @@ func (t *Tracker) ActiveWindow() (start, end int) {
 	return start, end
 }
 
+// WordsPerDay returns how many words to present each day, clamped to the
+// supported range and smoothed against the previously persisted value.
 func (t *Tracker) WordsPerDay() int {
 	windowScore := t.windowEngagementScore()
 
 	n := int(math.Round(float64(defaultWordsPerDay) * windowScore))
 	n = clamp(n, minWordsPerDay, maxWordsPerDay)
 
-	daemonVal := t.getDaemonState("words_per_day")
-	if daemonVal != nil {
-		n = clamp(n, *daemonVal-1, *daemonVal+1)
+	prev, ok := t.getSetting(settingWordsPerDay)
+	if ok {
+		n = clamp(n, prev-1, prev+1)
 	}
 
-	t.putDaemonState("words_per_day", n)
+	t.putSetting(settingWordsPerDay, n)
 	return n
 }
 
+// InterWordMinutes returns how long to wait between word presentations within
+// the active window.
 func (t *Tracker) InterWordMinutes(activeHours int, wordsPerDay int) int {
 	gap := (activeHours * 60) / (wordsPerDay + 1)
 	return clamp(gap, minInterWordMins, defaultInterWordMins)
-}
-
-func (t *Tracker) BestNotificationHour(wordPhase string) int {
-	scores := t.hourlyScores()
-	now := time.Now().Hour()
-
-	var offset int
-	switch wordPhase {
-	case "recall":
-		offset = 2
-	case "produce":
-		offset = 5
-	default:
-		offset = 0
-	}
-
-	target := now + offset
-	if target >= 24 {
-		target -= 24
-	}
-
-	best, bestScore := target, scores[target]
-	for h := max(0, target-2); h <= min(23, target+2); h++ {
-		if scores[h] > bestScore {
-			best, bestScore = h, scores[h]
-		}
-	}
-
-	return best
 }
 
 func (t *Tracker) hourlyScores() [24]float64 {
@@ -241,117 +248,21 @@ func (t *Tracker) windowEngagementScore() float64 {
 	return math.Min(avg*2.0, 1.5)
 }
 
-func (t *Tracker) getDaemonState(key string) *int {
-	var val string
-	err := t.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&val)
-	if err != nil || val == "" {
-		return nil
+func (t *Tracker) getSetting(key string) (int, bool) {
+	val, ok := t.store.GetSetting(key)
+	if !ok || val == "" {
+		return 0, false
 	}
-	v := 0
-	for _, c := range val {
-		if c >= '0' && c <= '9' {
-			v = v*10 + int(c-'0')
-		}
+	v, err := strconv.Atoi(val)
+	if err != nil || v == 0 {
+		return 0, false
 	}
-	if v == 0 {
-		return nil
-	}
-	return &v
+	return v, true
 }
 
-func (t *Tracker) putDaemonState(key string, val int) {
-	valStr := intToStr(val)
-	if _, err := t.db.Exec(
-		`INSERT INTO settings (key, value) VALUES (?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value = ?`,
-		key, valStr, valStr,
-	); err != nil {
-		log.Printf("engage: putDaemonState %s: %v", key, err)
-	}
-}
-
-func (t *Tracker) PutLastWordTime(tm time.Time) {
-	val := tm.Format(time.RFC3339)
-	if _, err := t.db.Exec(
-		`INSERT INTO settings (key, value) VALUES ('last_word_time', ?)
-		 ON CONFLICT(key) DO UPDATE SET value = ?`, val, val,
-	); err != nil {
-		log.Printf("engage: PutLastWordTime: %v", err)
-	}
-}
-
-func (t *Tracker) GetLastWordTime() (time.Time, bool) {
-	var val string
-	err := t.db.QueryRow(`SELECT value FROM settings WHERE key = 'last_word_time'`).Scan(&val)
-	if err != nil || val == "" {
-		return time.Time{}, false
-	}
-	tm, err := time.Parse(time.RFC3339, val)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return tm, true
-}
-
-func (t *Tracker) PutLastNotificationTime(tm time.Time) {
-	val := tm.Format(time.RFC3339)
-	if _, err := t.db.Exec(
-		`INSERT INTO settings (key, value) VALUES ('last_notify_time', ?)
-		 ON CONFLICT(key) DO UPDATE SET value = ?`, val, val,
-	); err != nil {
-		log.Printf("engage: PutLastNotificationTime: %v", err)
-	}
-}
-
-func (t *Tracker) GetLastNotificationTime() (time.Time, bool) {
-	var val string
-	err := t.db.QueryRow(`SELECT value FROM settings WHERE key = 'last_notify_time'`).Scan(&val)
-	if err != nil || val == "" {
-		return time.Time{}, false
-	}
-	tm, err := time.Parse(time.RFC3339, val)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return tm, true
-}
-
-func (t *Tracker) PutCurrentWord(id int64, phase string) {
-	if _, err := t.db.Exec(
-		`INSERT INTO daemon_state (key, value) VALUES ('current_word_id', ?)
-		 ON CONFLICT(key) DO UPDATE SET value = ?`,
-		intToStr(int(id)), intToStr(int(id)),
-	); err != nil {
-		log.Printf("engage: PutCurrentWord id: %v", err)
-	}
-	if _, err := t.db.Exec(
-		`INSERT INTO daemon_state (key, value) VALUES ('current_phase', ?)
-		 ON CONFLICT(key) DO UPDATE SET value = ?`,
-		phase, phase,
-	); err != nil {
-		log.Printf("engage: PutCurrentWord phase: %v", err)
-	}
-}
-
-func (t *Tracker) GetCurrentWord() (int64, string) {
-	var idStr, phase string
-	err1 := t.db.QueryRow(`SELECT value FROM daemon_state WHERE key = 'current_word_id'`).Scan(&idStr)
-	err2 := t.db.QueryRow(`SELECT value FROM daemon_state WHERE key = 'current_phase'`).Scan(&phase)
-	if err1 != nil || err2 != nil {
-		return 0, ""
-	}
-	id := 0
-	for _, c := range idStr {
-		if c >= '0' && c <= '9' {
-			id = id*10 + int(c-'0')
-		}
-	}
-	return int64(id), phase
-}
-
-func (t *Tracker) ClearCurrentWord() {
-	if _, err := t.db.Exec(`DELETE FROM daemon_state WHERE key IN ('current_word_id', 'current_phase')`); err != nil {
-		log.Printf("engage: ClearCurrentWord: %v", err)
+func (t *Tracker) putSetting(key string, val int) {
+	if err := t.store.SetSetting(key, strconv.Itoa(val)); err != nil {
+		log.Printf("engage: putSetting %s: %v", key, err)
 	}
 }
 
@@ -387,38 +298,4 @@ func clamp(v, lo, hi int) int {
 		return hi
 	}
 	return v
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func intToStr(v int) string {
-	if v == 0 {
-		return "0"
-	}
-	neg := false
-	if v < 0 {
-		neg = true
-		v = -v
-	}
-	buf := make([]byte, 0, 12)
-	for v > 0 {
-		buf = append([]byte{byte('0' + v%10)}, buf...)
-		v /= 10
-	}
-	if neg {
-		buf = append([]byte{'-'}, buf...)
-	}
-	return string(buf)
 }

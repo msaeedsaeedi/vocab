@@ -2,6 +2,6 @@
 
 package main
 
-import "github.com/msaeedsaeedi/vocab/internal/database"
+import "github.com/msaeedsaeedi/vocab/internal/state"
 
-func ensureWallpaperConsent(*database.DB) bool { return true }
+func ensureWallpaperConsent(*state.Store) bool { return true }

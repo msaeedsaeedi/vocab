@@ -1,4 +1,4 @@
-package words
+package lexicon
 
 import (
 	"bufio"
@@ -80,7 +80,7 @@ func (l *List) Len() int { return len(l.entries) }
 func LoadSeed() *List {
 	l, err := Load(bytes.NewReader(seedBytes))
 	if err != nil {
-		panic(fmt.Sprintf("internal/words: embedded seed is corrupt: %v", err))
+		panic(fmt.Sprintf("internal/lexicon: embedded seed is corrupt: %v", err))
 	}
 	return l
 }

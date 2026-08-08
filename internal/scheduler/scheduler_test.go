@@ -182,7 +182,7 @@ func TestSelectNextWord(t *testing.T) {
 
 	seen := make(map[int64]bool)
 	for i := 0; i < 20; i++ {
-		selected := SelectNextWord(nil, words)
+		selected := SelectNextWord(words)
 		if selected == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -193,12 +193,12 @@ func TestSelectNextWord(t *testing.T) {
 	}
 
 	var single []word.Word
-	if got := SelectNextWord(nil, single); got != nil {
+	if got := SelectNextWord(single); got != nil {
 		t.Error("empty list should return nil")
 	}
 
 	singleWord := []word.Word{{ID: 1, Stability: 1.0}}
-	if got := SelectNextWord(nil, singleWord); got == nil || got.ID != 1 {
+	if got := SelectNextWord(singleWord); got == nil || got.ID != 1 {
 		t.Error("single word should be selected")
 	}
 }

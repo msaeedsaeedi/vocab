@@ -2,13 +2,16 @@ package wallpaper
 
 import (
 	"fmt"
+	"image"
 	"image/jpeg"
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
+
+	"github.com/msaeedsaeedi/vocab/internal/apppaths"
 )
 
+// Word is the lexical content shown on the wallpaper during exposure.
 type Word struct {
 	Text       string
 	Definition string
@@ -16,72 +19,29 @@ type Word struct {
 	Pos        string
 }
 
+// Option customizes the rendered image dimensions.
 type Option struct {
 	Width  int
 	Height int
 }
 
+// Render draws the word wallpaper, writes it to the data dir, and sets it as
+// the desktop background.
 func Render(w Word, opt Option) error {
-	return renderWithSet(w, opt, true)
-}
-
-func RenderPreview(w Word, path string, opt Option) error {
-	img, err := render(wordData{
-		text:       w.Text,
-		definition: w.Definition,
-		example:    w.Example,
-		pos:        w.Pos,
-	}, opt.Width, opt.Height)
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("preview: create: %w", err)
-	}
-	defer f.Close()
-	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 95}); err != nil {
-		return fmt.Errorf("preview: encode: %w", err)
-	}
-	log.Printf("preview: written %s", path)
-	return nil
-}
-
-func renderWithSet(w Word, opt Option, set bool) error {
-	if opt.Width == 0 {
-		opt.Width = 1920
-	}
-	if opt.Height == 0 {
-		opt.Height = 1080
-	}
-
-	img, err := render(wordData{
-		text:       w.Text,
-		definition: w.Definition,
-		example:    w.Example,
-		pos:        w.Pos,
-	}, opt.Width, opt.Height)
+	img, err := renderImage(w, opt)
 	if err != nil {
 		return err
 	}
 
-	out, err := wallpaperPath()
+	out, err := apppaths.WallpaperImagePath()
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(out), 0755); err != nil {
 		return fmt.Errorf("wallpaper: mkdir: %w", err)
 	}
-	f, err := os.Create(out)
-	if err != nil {
-		return fmt.Errorf("wallpaper: create: %w", err)
-	}
-	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 95}); err != nil {
-		f.Close()
-		return fmt.Errorf("wallpaper: encode: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("wallpaper: close: %w", err)
+	if err := writeJPEG(out, img); err != nil {
+		return fmt.Errorf("wallpaper: %w", err)
 	}
 
 	info, err := os.Stat(out)
@@ -93,25 +53,45 @@ func renderWithSet(w Word, opt Option, set bool) error {
 		return fmt.Errorf("wallpaper: output file is empty")
 	}
 
-	if !set {
-		return nil
-	}
 	if err := Set(out); err != nil {
 		return fmt.Errorf("wallpaper: set: %w", err)
 	}
 	return nil
 }
 
-func wallpaperPath() (string, error) {
-	home, err := os.UserHomeDir()
+// RenderPreview draws the word wallpaper to path without setting it.
+func RenderPreview(w Word, path string, opt Option) error {
+	img, err := renderImage(w, opt)
 	if err != nil {
-		return "", fmt.Errorf("wallpaper: home dir: %w", err)
+		return err
 	}
-	var dir string
-	if runtime.GOOS == "windows" {
-		dir = filepath.Join(home, "AppData", "Roaming", "vocab")
-	} else {
-		dir = filepath.Join(home, ".local", "share", "vocab")
+	if err := writeJPEG(path, img); err != nil {
+		return fmt.Errorf("preview: %w", err)
 	}
-	return filepath.Join(dir, "wallpaper.jpg"), nil
+	log.Printf("preview: written %s", path)
+	return nil
+}
+
+func renderImage(w Word, opt Option) (image.Image, error) {
+	return render(wordData{
+		text:       w.Text,
+		definition: w.Definition,
+		example:    w.Example,
+		pos:        w.Pos,
+	}, opt.Width, opt.Height)
+}
+
+func writeJPEG(path string, img image.Image) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 95}); err != nil {
+		f.Close()
+		return fmt.Errorf("encode: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close: %w", err)
+	}
+	return nil
 }

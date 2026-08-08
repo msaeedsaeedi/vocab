@@ -142,7 +142,7 @@ Data is stored at `%APPDATA%/vocab/`:
 
 Schema migrations run automatically on startup; a recovery backup (`vocab.db.pre-migration-*.bak`) is kept before a migration and any failed database is preserved, so learner data is never destroyed.
 
-The curated word list lives in `internal/words/seed.jsonl` and is embedded into the binary at build time. Vocab stores only learner state (which words are scheduled, review history, engagement) in `vocab.db` — canonical word content comes from the embedded seed.
+The curated word list lives in `internal/lexicon/seed.jsonl` and is embedded into the binary at build time. Vocab stores only learner state (which words are scheduled, review history, engagement) in `vocab.db` — canonical word content comes from the embedded seed.
 
 ## Get help
 

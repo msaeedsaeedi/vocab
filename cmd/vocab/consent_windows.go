@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/msaeedsaeedi/vocab/internal/database"
+	"github.com/msaeedsaeedi/vocab/internal/state"
 	"golang.org/x/sys/windows"
 )
 
@@ -17,9 +17,8 @@ const (
 	idYes      = 6
 )
 
-func ensureWallpaperConsent(db *database.DB) bool {
-	var value string
-	if err := db.QueryRow(`SELECT value FROM daemon_state WHERE key = 'wallpaper_consent'`).Scan(&value); err == nil && value == "accepted" {
+func ensureWallpaperConsent(store *state.Store) bool {
+	if store.WallpaperConsentAccepted() {
 		return true
 	}
 	user32 := windows.NewLazySystemDLL("user32.dll")
@@ -34,9 +33,8 @@ func ensureWallpaperConsent(db *database.DB) bool {
 	if answer != idYes {
 		return false
 	}
-	if _, err := db.Exec(`INSERT INTO daemon_state (key, value) VALUES ('wallpaper_consent', 'accepted')
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`); err != nil {
-		log.Printf("save wallpaper consent: %v", err)
+	if err := store.AcceptWallpaperConsent(); err != nil {
+		log.Printf("%v", err)
 		return false
 	}
 	return true

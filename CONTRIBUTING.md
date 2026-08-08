@@ -61,7 +61,7 @@ brew install go gcc
 ```console
 $ go version                # go1.25.12 linux/amd64
 $ go env GOROOT             # /usr/local/go  (a real dir, NOT .../golang.org/toolchain@...)
-$ go tool covdata version   # prints version — confirms coverage tooling is present
+$ go test ./internal/state -cover   # no test files — exercises covdata (fails on partial toolchains)
 $ go env CGO_ENABLED        # 1 once gcc is on PATH
 ```
 
@@ -111,6 +111,7 @@ make clean          # Remove binaries and coverage output
 - Windows-specific code lives in files tagged `//go:build windows` (`internal/notify/`, `internal/wallpaper/set_windows.go`, `internal/tray/`); each has a stub for other platforms so the project builds on Linux for dev.
 - Don't add dependencies casually — prefer the standard library or deps already in `go.mod`.
 - SQLite schema changes go through the migration machinery in `internal/database` (backups + recovery are automatic; keep it that way).
+- `cmd/vocab` is thin wiring (flags, logging, DB, daemon startup). The learning loop and session state machine live in `internal/daemon`; runtime state persistence is in `internal/state`; ephemeral on-disk paths are in `internal/apppaths`; the embedded word catalog is `internal/lexicon`.
 
 ## Commit messages
 
