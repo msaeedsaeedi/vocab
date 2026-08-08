@@ -126,11 +126,24 @@ func Send(w Word) error {
 }
 
 func sendStatus(message string) error {
+	return sendStatusLink(message, "", "")
+}
+
+func sendStatusLink(message, label, url string) error {
+	var actions *toastActions
+	if label != "" && url != "" {
+		actions = &toastActions{Actions: []toastAction{{
+			Type:      "protocol",
+			Content:   label,
+			Arguments: url,
+		}}}
+	}
 	return publishToast(toastPayload{
 		ActivationType: toastActivation,
 		Duration:       toastDuration,
 		Visual:         makeVisual(message),
 		Audio:          toastAudio{Source: toastDefaultAudio},
+		Actions:        actions,
 	})
 }
 

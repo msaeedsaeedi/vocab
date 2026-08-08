@@ -25,6 +25,8 @@ import (
 	"github.com/msaeedsaeedi/vocab/internal/wallpaper"
 )
 
+const supportURL = "https://github.com/msaeedsaeedi/vocab#get-help"
+
 func main() {
 	resetDB := flag.Bool("reset-db", false, "Delete Vocab learner state and start fresh")
 	reviewID := flag.Int64("review", 0, "Word ID to record feedback for")
@@ -193,7 +195,7 @@ func main() {
 				if err := report.Reveal(path); err != nil {
 					log.Printf("report: reveal %s: %v", path, err)
 				}
-				if err := notify.SendStatus("Diagnostic report created. Explorer opened it so you can attach it to a support request."); err != nil {
+				if err := notify.SendStatusLink("Diagnostic report created. Explorer opened it so you can attach it to a support request.", "Get help", supportURL); err != nil {
 					log.Printf("report: confirmation notification: %v", err)
 				}
 			},

@@ -18,6 +18,10 @@ func sendStatus(message string) error {
 	return exec.Command("notify-send", "-a", "Vocab", "Vocab", message).Run()
 }
 
+func sendStatusLink(message, _, _ string) error {
+	return sendStatus(message)
+}
+
 func Send(w Word) error {
 	switch runtime.GOOS {
 	case "linux":

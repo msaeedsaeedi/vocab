@@ -23,3 +23,8 @@ func SetActivationCallback(callback func(arguments string)) {
 func SendStatus(message string) error {
 	return sendStatus(message)
 }
+
+// SendStatusLink confirms a local action and adds an optional help link.
+func SendStatusLink(message, label, url string) error {
+	return sendStatusLink(message, label, url)
+}
