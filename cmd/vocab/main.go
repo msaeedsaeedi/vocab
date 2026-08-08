@@ -16,6 +16,7 @@ import (
 	"github.com/msaeedsaeedi/vocab/internal/daemon"
 	"github.com/msaeedsaeedi/vocab/internal/database"
 	"github.com/msaeedsaeedi/vocab/internal/engage"
+	"github.com/msaeedsaeedi/vocab/internal/instance"
 	"github.com/msaeedsaeedi/vocab/internal/lexicon"
 	"github.com/msaeedsaeedi/vocab/internal/notify"
 	"github.com/msaeedsaeedi/vocab/internal/report"
@@ -76,6 +77,13 @@ func main() {
 		return
 	}
 
+	// A direct Windows launch is the normal desktop entry point. Keep the
+	// explicit -daemon flag for compatibility, but show the tray for a plain
+	// launch as well.
+	desktopDaemon := *daemonFlag || runtime.GOOS == "windows"
+	if *reportFlag || *register || *reviewID > 0 || *produceID > 0 {
+		desktopDaemon = false
+	}
 	if *dev {
 		devFactor = 1.0 / 60.0
 		log.Print("=== DEV MODE: timeouts divided by 60 ===")
@@ -87,6 +95,17 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Printf("=== vocab started (pid=%d, os=%s, version=%s) ===", os.Getpid(), runtime.GOOS, version)
 	log.Printf("log file: %s", logPath)
+	if desktopDaemon {
+		release, alreadyRunning, err := instance.Acquire()
+		if err != nil {
+			log.Fatalf("single-instance guard: %v", err)
+		}
+		if alreadyRunning {
+			log.Print("another Vocab instance is already running")
+			return
+		}
+		defer release()
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -142,7 +161,7 @@ func main() {
 		RestoreWallpaper: restoreWallpaper,
 	})
 
-	if *daemonFlag {
+	if desktopDaemon {
 		if !ensureWallpaperConsent(store) {
 			log.Print("daemon start cancelled: wallpaper consent was declined")
 			return

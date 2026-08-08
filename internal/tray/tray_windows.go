@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -28,6 +29,7 @@ type Actions struct {
 
 const (
 	wmDestroy         = 0x0002
+	wmQuit            = 0x0012
 	wmCommand         = 0x0111
 	wmContextMenu     = 0x007B
 	wmUser            = 0x0400
@@ -67,6 +69,8 @@ var (
 	procTranslateMessage    = user32.NewProc("TranslateMessage")
 	procDispatchMessage     = user32.NewProc("DispatchMessageW")
 	procPostQuitMessage     = user32.NewProc("PostQuitMessage")
+	procPostThreadMessage   = user32.NewProc("PostThreadMessageW")
+	procGetCurrentThreadId  = kernel32.NewProc("GetCurrentThreadId")
 	procGetCursorPos        = user32.NewProc("GetCursorPos")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	procCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
@@ -123,14 +127,15 @@ var (
 )
 
 func Run(ctx context.Context, actions Actions) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	activeActions = actions
-	go func() { <-ctx.Done(); procPostQuitMessage.Call(0) }()
-	if err := run(); err != nil {
+	if err := run(ctx); err != nil {
 		log.Printf("tray: %v", err)
 	}
 }
 
-func run() error {
+func run(ctx context.Context) error {
 	instance, _, err := procGetModuleHandle.Call(0)
 	if instance == 0 {
 		return err
@@ -144,6 +149,11 @@ func run() error {
 	if hwnd == 0 {
 		return e
 	}
+	threadID, _, _ := procGetCurrentThreadId.Call()
+	go func() {
+		<-ctx.Done()
+		procPostThreadMessage.Call(threadID, wmQuit, 0, 0)
+	}()
 	defer procDestroyWindow.Call(hwnd)
 	if err := addIcon(windows.Handle(hwnd)); err != nil {
 		return err
@@ -153,6 +163,7 @@ func run() error {
 	for {
 		ret, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 		if ret == 0 {
+			log.Print("tray: message loop exited")
 			return nil
 		}
 		if int(ret) == -1 {
