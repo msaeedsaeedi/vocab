@@ -32,8 +32,10 @@ CI is unaffected because `actions/setup-go` installs a full distribution. Local 
 **Linux / WSL (Ubuntu/Debian):**
 
 ```bash
-# C toolchain, so `-race` tests work (the Makefile auto-detects this)
-sudo apt-get update && sudo apt-get install -y gcc
+# C toolchain, so `-race` tests work (the Makefile auto-detects this).
+# build-essential pulls in gcc + libc6-dev; without libc6-dev cgo fails to
+# compile with "stdlib.h: No such file or directory".
+sudo apt-get update && sudo apt-get install -y build-essential
 
 # Full Go distribution — replace 1.25.12 with the latest 1.25.x if newer
 cd /tmp
@@ -62,6 +64,8 @@ $ go env GOROOT             # /usr/local/go  (a real dir, NOT .../golang.org/too
 $ go tool covdata version   # prints version — confirms coverage tooling is present
 $ go env CGO_ENABLED        # 1 once gcc is on PATH
 ```
+
+If `make test` fails with `# runtime/cgo ... _cgo_export.c:3:10: fatal error: stdlib.h: No such file or directory`, the compiler is present but the C library headers aren't — re-run the `apt-get install -y build-essential` step above.
 
 ### golangci-lint
 
